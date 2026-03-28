@@ -29,32 +29,15 @@ transforms:
           .metrics_json = encode_json(parsed.metrics)
         }
         .source = "file"
+        .timeliness = "hot"
+        .delay_seconds = 0
       }
-
-  cmdb_heartbeat:
-    type: http
-    inputs:
-      - parse_json
-    uri: http://cmdb-api:8000/api/v1/cmdb/heartbeat
-    method: POST
-    request:
-      body: '{"name": "{{ .service_name }}", "type_name": "Service", "labels": {"host": "{{ .host_name }}", "env": "production"}}'
-    response:
-      status: "2xx"
-
-  timeliness:
-    type: remap
-    inputs:
-      - cmdb_heartbeat
-    source: |
-      .timeliness = "hot"
-      .delay_seconds = 0
 
 sinks:
   clickhouse_logs:
     type: clickhouse
     inputs:
-      - timeliness
+      - parse_json
     endpoint: http://clickhouse:8123
     database: logs
     table: log_entries
