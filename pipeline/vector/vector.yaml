@@ -13,25 +13,10 @@ transforms:
     inputs:
       - app_logs
     source: |
-      parsed = parse_json(.message) ?? null
-      if is_object(parsed) {
-        .timestamp = parsed.timestamp ?? now()
-        .level = downcase(parsed.level ?? "info")
-        .message = parsed.message ?? ""
-        .service_name = parsed.service_name ?? "unknown"
-        .host_name = parsed.host_name ?? "unknown"
-        .trace_id = parsed.trace_id ?? ""
-        .span_id = parsed.span_id ?? ""
-        .endpoint = parsed.endpoint ?? ""
-        .http_status = to_int(parsed.http_status ?? 0)
-        .labels = parsed.labels ?? {}
-        if parsed.metrics {
-          .metrics_json = encode_json(parsed.metrics)
-        }
-        .source = "file"
-        .timeliness = "hot"
-        .delay_seconds = 0
-      }
+      . = parse_json!(.message)
+      .source = "file"
+      .timeliness = "hot"
+      .delay_seconds = 0
 
 sinks:
   clickhouse_logs:
@@ -43,9 +28,8 @@ sinks:
     table: log_entries
     skip_unknown_fields: true
     buffer:
-      type: disk
-      max_size: 10737418240
-      when_full: block
+      type: memory
+      max_events: 10000
 
 api:
   enabled: true

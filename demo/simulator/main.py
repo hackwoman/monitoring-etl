@@ -288,7 +288,7 @@ class RequestFlowEngine:
 
             # 构建日志条目
             entry = {
-                "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.") + f"{random.randint(0,999):03d}Z",
+                "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                 "level": level,
                 "service_name": service,
                 "host_name": config["host"],
