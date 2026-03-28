@@ -2,8 +2,8 @@ CREATE DATABASE IF NOT EXISTS logs;
 
 CREATE TABLE IF NOT EXISTS logs.log_entries
 (
-    timestamp       DateTime64(3, 'UTC'),
-    ingest_time     DateTime64(3, 'UTC') DEFAULT now64(3),
+    timestamp       DateTime,
+    ingest_time     DateTime DEFAULT now(),
     source          LowCardinality(String) DEFAULT 'otel',
     agent_id        String DEFAULT '',
     service_name    LowCardinality(String) DEFAULT 'unknown',
@@ -34,8 +34,8 @@ CREATE TABLE IF NOT EXISTS logs.data_completeness
     time_bucket     DateTime,
     expected_count  UInt64 DEFAULT 0,
     actual_count    UInt64 DEFAULT 0,
-    first_event     Nullable(DateTime64(3, 'UTC')),
-    last_event      Nullable(DateTime64(3, 'UTC')),
+    first_event     Nullable(DateTime),
+    last_event      Nullable(DateTime),
     gap_seconds     UInt32 DEFAULT 0,
     status          Enum8('complete'=1, 'partial'=2, 'gap_detected'=3) DEFAULT 'complete',
     updated_at      DateTime DEFAULT now()
