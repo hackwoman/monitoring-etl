@@ -1,0 +1,58 @@
+# OpenTelemetry Collector Configuration
+# 部署在每台主机上，采集日志并推送到 Vector
+
+receivers:
+  filelog:
+    include:
+      - /var/log/app/*.log
+      - /var/log/syslog
+      - /var/log/messages
+    operators:
+      - type: regex_parser
+        regex: '^(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d+Z?)\s+(?P<severity>\w+)\s+(?P<message>.*)$'
+        timestamp:
+          parse_from: attributes.timestamp
+          layout: '%Y-%m-%dT%H:%M:%S.%sZ'
+    start_at: beginning
+    storage: file_storage
+
+processors:
+  resource:
+    attributes:
+      - key: host.name
+        value: "${HOSTNAME}"
+        action: upsert
+      - key: service.name
+        value: "system"
+        action: upsert
+  
+  batch:
+    timeout: 5s
+    send_batch_size: 1000
+    send_batch_max_size: 2000
+
+extensions:
+  file_storage:
+    directory: /var/lib/otelcol
+    fsync: true
+
+exporters:
+  otlphttp:
+    endpoint: http://vector:4318
+    sending_queue:
+      enabled: true
+      queue_size: 5000
+      num_consumers: 10
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+service:
+  extensions: [file_storage]
+  pipelines:
+    logs:
+      receivers: [filelog]
+      processors: [resource, batch]
+      exporters: [otlphttp]

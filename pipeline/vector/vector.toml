@@ -1,0 +1,142 @@
+# Vector ETL Pipeline Configuration
+# 接收 OTel 数据 → 解析 → 关联 CMDB → 写入 ClickHouse
+
+# ---- Sources ----
+[sources.otlp]
+type = "opentelemetry"
+grpc.address = "0.0.0.0:4317"
+http.address = "0.0.0.0:4318"
+
+# ---- Transforms ----
+
+# 1. 从 OTel LogData 提取标准字段
+[transforms.parse_otel]
+type = "remap"
+inputs = ["otlp.logs"]
+source = '''
+  # OTel log 标准字段提取
+  .timestamp = .timestamp ?? now()
+  .level = downcase(.severity_text ?? .attributes?.["log.level"] ?? "info")
+  .message = .body ?? ""
+  .service_name = .resource?.["service.name"] ?? "unknown"
+  .host_name = .resource?.["host.name"] ?? "unknown"
+  .trace_id = .trace_id ?? ""
+  .span_id = .span_id ?? ""
+  .source = "otel"
+'''
+
+# 2. 尝试解析 JSON 格式的日志内容
+[transforms.parse_json_log]
+type = "remap"
+inputs = ["parse_otel"]
+source = '''
+  # 如果 message 是 JSON，展开其字段到 attributes
+  parsed = parse_json(.message) ?? null
+  if is_object(parsed) {
+    # 常见字段提升到顶层
+    .level = downcase(parsed.level ?? .level)
+    .message = parsed.message ?? parsed.msg ?? .message
+    .service_name = parsed.service ?? parsed.service_name ?? .service_name
+    .host_name = parsed.host ?? parsed.hostname ?? .host_name
+    
+    # 其余字段存入 attributes
+    for_each(parsed) -> |key, value| {
+      if !includes(["level", "message", "msg", "service", "service_name", "host", "hostname", "timestamp", "time", "@timestamp"], key) {
+        .attributes = set!(.attributes, [key], value)
+      }
+    }
+  }
+'''
+
+# 3. 关联 CMDB 实体信息
+[transforms.enrich_cmdb]
+type = "http"
+inputs = ["parse_json_log"]
+uri = "http://cmdb-api:8000/api/v1/cmdb/enrich"
+method = "POST"
+request.body = '''
+  {"service_name": {{ .service_name | json }}, "host_name": {{ .host_name | json }}}
+'''
+response.status = "2xx"
+
+# 4. 计算时效性
+[transforms.timeliness]
+type = "remap"
+inputs = ["enrich_cmdb"]
+source = '''
+  event_ts = to_timestamp(.timestamp)
+  arrival_ts = now()
+  delay_secs = to_int(arrival_ts - event_ts)
+  
+  if delay_secs < 30 {
+    .timeliness = "hot"
+  } else if delay_secs < 300 {
+    .timeliness = "warm"
+  } else if delay_secs < 3600 {
+    .timeliness = "cool"
+  } else {
+    .timeliness = "cold"
+  }
+  .delay_seconds = delay_secs
+'''
+
+# 5. 路由：按级别分发
+[transforms.route_by_level]
+type = "route"
+inputs = ["timeliness"]
+route.error = '.level == "error" || .level == "fatal"'
+route.default = 'true'
+
+# ---- Sinks ----
+
+# ClickHouse - 所有日志
+[sinks.clickhouse_logs]
+type = "clickhouse"
+inputs = ["timeliness"]
+endpoint = "http://clickhouse:8123"
+database = "logs"
+table = "log_entries"
+skip_unknown_fields = true
+
+# ClickHouse 字段映射
+[sinks.clickhouse_logs.encoding]
+timestamp = "timestamp"
+ingest_time = "ingest_time"
+source = "source"
+agent_id = "agent_id"
+service_name = "service_name"
+host_name = "host_name"
+level = "level"
+message = "message"
+body = "body"
+attributes = "attributes"
+trace_id = "trace_id"
+span_id = "span_id"
+labels = "labels"
+timeliness = "timeliness"
+delay_seconds = "delay_seconds"
+
+# 磁盘 buffer (数据可靠性)
+[sinks.clickhouse_logs.buffer]
+type = "disk"
+max_size = 107374182400  # 100GB
+when_full = "block"
+
+# ClickHouse - 错误日志（单独 sink，可配置不同保留策略）
+[sinks.clickhouse_errors]
+type = "clickhouse"
+inputs = ["route_by_level.error"]
+endpoint = "http://clickhouse:8123"
+database = "logs"
+table = "log_entries"
+skip_unknown_fields = true
+
+[sinks.clickhouse_errors.buffer]
+type = "disk"
+max_size = 53687091200  # 50GB
+when_full = "block"
+
+# ---- API (Vector 内置监控) ----
+[api]
+enabled = true
+address = "0.0.0.0:8686"
