@@ -16,9 +16,10 @@ class Base(DeclarativeBase):
 
 
 async def init_db():
+    """Verify database connection."""
+    from sqlalchemy import text
     async with engine.begin() as conn:
-        # Tables are created by init_db.py script, just verify connection
-        await conn.execute(Base.metadata.select().limit(0).select_from(Base.metadata.tables.get("entity_type_def", Base.metadata.tables.get("entity"))))
+        await conn.execute(text("SELECT 1"))
 
 
 async def get_session() -> AsyncSession:
