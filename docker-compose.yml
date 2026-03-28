@@ -44,7 +44,7 @@ services:
   vector:
     image: timberio/vector:0.42.0-alpine
     volumes:
-      - ./pipeline/vector/vector.toml:/etc/vector/vector.yaml:ro
+      - ./pipeline/vector/vector.yaml:/etc/vector/vector.yaml:ro
       - ./logs:/var/log/app:ro
     ports:
       - "4317:4317"    # OTLP gRPC
