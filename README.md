@@ -4,13 +4,22 @@
 
 智能监控数据 ETL 平台，支持数百至数千台云主机规模。
 
-## Quick Start
+## Deploy (Cloud Server)
 
 ```bash
-# 一键启动
-docker compose up -d
+# 一行命令部署
+curl -fsSL https://raw.githubusercontent.com/hackwoman/monitoring-etl/main/scripts/setup.sh | bash
 
-# 等待服务就绪
+# 或手动
+git clone https://github.com/hackwoman/monitoring-etl.git
+cd monitoring-etl
+bash scripts/setup.sh
+```
+
+## Local Development
+
+```bash
+docker compose up -d
 docker compose ps
 
 # 访问

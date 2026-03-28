@@ -9,7 +9,7 @@
 set -e
 
 # ---- 配置 ----
-REPO_URL="git@github.com:hackwoman/monitoring-etl.git"
+REPO_URL="https://github.com/hackwoman/monitoring-etl.git"
 PROJECT_DIR="$HOME/monitoring-etl"
 BRANCH="main"
 
