@@ -1,48 +1,47 @@
 # Vector ETL Pipeline Configuration
-# 接收 OTel 数据 → 解析 → 关联 CMDB → 写入 ClickHouse
+# 直接读取模拟器日志文件 → 解析 → 关联 CMDB → 写入 ClickHouse
 
 # ---- Sources ----
-[sources.otlp]
-type = "opentelemetry"
-grpc.address = "0.0.0.0:4317"
-http.address = "0.0.0.0:4318"
+
+[sources.app_logs]
+type = "file"
+include = ["/var/log/app/*.log"]
+read_from = "beginning"
+fingerprint.strategy = "device_and_inode"
 
 # ---- Transforms ----
 
-# 1. 从 OTel LogData 提取标准字段
-[transforms.parse_otel]
+# 1. 解析 JSON 日志
+[transforms.parse_json]
 type = "remap"
-inputs = ["otlp.logs"]
+inputs = ["app_logs"]
 source = '''
-  # OTel log 标准字段提取
-  .timestamp = .timestamp ?? now()
-  .level = downcase(.severity_text ?? .attributes?.["log.level"] ?? .attributes?.["level"] ?? "info")
-  .message = .body ?? .attributes?.["message"] ?? ""
-  .service_name = .attributes?.["service_name"] ?? .resource?.["service.name"] ?? "unknown"
-  .host_name = .attributes?.["host_name"] ?? .resource?.["host.name"] ?? "unknown"
-  .trace_id = .attributes?.["trace_id"] ?? .trace_id ?? ""
-  .span_id = .attributes?.["span_id"] ?? .span_id ?? ""
-  .source = "otel"
-  
-  # 提取 endpoint
-  .endpoint = .attributes?.["endpoint"] ?? ""
-  .http_status = .attributes?.["http_status"] ?? 0
-  
-  # 提取 labels
-  if .attributes?.["labels"] {
-    .labels = .attributes["labels"]
-  }
-  
-  # 提取 metrics 字段（核心指标）
-  if .attributes?.["metrics"] {
-    .metrics_json = encode_json(.attributes["metrics"])
+  parsed = parse_json(.message) ?? null
+  if is_object(parsed) {
+    .timestamp = parsed.timestamp ?? now()
+    .level = downcase(parsed.level ?? "info")
+    .message = parsed.message ?? ""
+    .service_name = parsed.service_name ?? "unknown"
+    .host_name = parsed.host_name ?? "unknown"
+    .trace_id = parsed.trace_id ?? ""
+    .span_id = parsed.span_id ?? ""
+    .endpoint = parsed.endpoint ?? ""
+    .http_status = to_int(parsed.http_status ?? 0)
+    .labels = parsed.labels ?? {}
+    
+    # metrics 字段保持为 JSON 字符串
+    if parsed.metrics {
+      .metrics_json = encode_json(parsed.metrics)
+    }
+    
+    .source = "file"
   }
 '''
 
-# 2. 关联 CMDB 实体信息（自动创建实体）
-[transforms.enrich_cmdb]
+# 2. CMDB 心跳（自动创建实体）
+[transforms.cmdb_heartbeat]
 type = "http"
-inputs = ["parse_otel"]
+inputs = ["parse_json"]
 uri = "http://cmdb-api:8000/api/v1/cmdb/heartbeat"
 method = "POST"
 request.body = '''
@@ -53,22 +52,10 @@ response.status = "2xx"
 # 3. 时效分类
 [transforms.timeliness]
 type = "remap"
-inputs = ["enrich_cmdb"]
+inputs = ["cmdb_heartbeat"]
 source = '''
-  event_ts = to_timestamp(.timestamp)
-  arrival_ts = now()
-  delay_secs = to_int(arrival_ts - event_ts)
-  
-  if delay_secs < 30 {
-    .timeliness = "hot"
-  } else if delay_secs < 300 {
-    .timeliness = "warm"
-  } else if delay_secs < 3600 {
-    .timeliness = "cool"
-  } else {
-    .timeliness = "cold"
-  }
-  .delay_seconds = delay_secs
+  .timeliness = "hot"
+  .delay_seconds = 0
 '''
 
 # ---- Sinks ----
