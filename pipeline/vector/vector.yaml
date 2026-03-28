@@ -44,7 +44,7 @@ sinks:
     skip_unknown_fields: true
     buffer:
       type: disk
-      max_size: 53687091200
+      max_size: 10737418240
       when_full: block
 
 api:
