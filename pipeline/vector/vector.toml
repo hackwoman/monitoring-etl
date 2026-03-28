@@ -16,50 +16,41 @@ inputs = ["otlp.logs"]
 source = '''
   # OTel log 标准字段提取
   .timestamp = .timestamp ?? now()
-  .level = downcase(.severity_text ?? .attributes?.["log.level"] ?? "info")
-  .message = .body ?? ""
-  .service_name = .resource?.["service.name"] ?? "unknown"
-  .host_name = .resource?.["host.name"] ?? "unknown"
-  .trace_id = .trace_id ?? ""
-  .span_id = .span_id ?? ""
+  .level = downcase(.severity_text ?? .attributes?.["log.level"] ?? .attributes?.["level"] ?? "info")
+  .message = .body ?? .attributes?.["message"] ?? ""
+  .service_name = .attributes?.["service_name"] ?? .resource?.["service.name"] ?? "unknown"
+  .host_name = .attributes?.["host_name"] ?? .resource?.["host.name"] ?? "unknown"
+  .trace_id = .attributes?.["trace_id"] ?? .trace_id ?? ""
+  .span_id = .attributes?.["span_id"] ?? .span_id ?? ""
   .source = "otel"
-'''
-
-# 2. 尝试解析 JSON 格式的日志内容
-[transforms.parse_json_log]
-type = "remap"
-inputs = ["parse_otel"]
-source = '''
-  # 如果 message 是 JSON，展开其字段到 attributes
-  parsed = parse_json(.message) ?? null
-  if is_object(parsed) {
-    # 常见字段提升到顶层
-    .level = downcase(parsed.level ?? .level)
-    .message = parsed.message ?? parsed.msg ?? .message
-    .service_name = parsed.service ?? parsed.service_name ?? .service_name
-    .host_name = parsed.host ?? parsed.hostname ?? .host_name
-    
-    # 其余字段存入 attributes
-    for_each(parsed) -> |key, value| {
-      if !includes(["level", "message", "msg", "service", "service_name", "host", "hostname", "timestamp", "time", "@timestamp"], key) {
-        .attributes = set!(.attributes, [key], value)
-      }
-    }
+  
+  # 提取 endpoint
+  .endpoint = .attributes?.["endpoint"] ?? ""
+  .http_status = .attributes?.["http_status"] ?? 0
+  
+  # 提取 labels
+  if .attributes?.["labels"] {
+    .labels = .attributes["labels"]
+  }
+  
+  # 提取 metrics 字段（核心指标）
+  if .attributes?.["metrics"] {
+    .metrics_json = encode_json(.attributes["metrics"])
   }
 '''
 
-# 3. 关联 CMDB 实体信息
+# 2. 关联 CMDB 实体信息（自动创建实体）
 [transforms.enrich_cmdb]
 type = "http"
-inputs = ["parse_json_log"]
-uri = "http://cmdb-api:8000/api/v1/cmdb/enrich"
+inputs = ["parse_otel"]
+uri = "http://cmdb-api:8000/api/v1/cmdb/heartbeat"
 method = "POST"
 request.body = '''
-  {"service_name": {{ .service_name | json }}, "host_name": {{ .host_name | json }}}
+  {"name": {{ .service_name | json }}, "type_name": "Service", "labels": {"host": {{ .host_name | json }}, "env": "production"}}
 '''
 response.status = "2xx"
 
-# 4. 计算时效性
+# 3. 时效分类
 [transforms.timeliness]
 type = "remap"
 inputs = ["enrich_cmdb"]
@@ -80,13 +71,6 @@ source = '''
   .delay_seconds = delay_secs
 '''
 
-# 5. 路由：按级别分发
-[transforms.route_by_level]
-type = "route"
-inputs = ["timeliness"]
-route.error = '.level == "error" || .level == "fatal"'
-route.default = 'true'
-
 # ---- Sinks ----
 
 # ClickHouse - 所有日志
@@ -98,40 +82,7 @@ database = "logs"
 table = "log_entries"
 skip_unknown_fields = true
 
-# ClickHouse 字段映射
-[sinks.clickhouse_logs.encoding]
-timestamp = "timestamp"
-ingest_time = "ingest_time"
-source = "source"
-agent_id = "agent_id"
-service_name = "service_name"
-host_name = "host_name"
-level = "level"
-message = "message"
-body = "body"
-attributes = "attributes"
-trace_id = "trace_id"
-span_id = "span_id"
-labels = "labels"
-timeliness = "timeliness"
-delay_seconds = "delay_seconds"
-
-# 磁盘 buffer (数据可靠性)
 [sinks.clickhouse_logs.buffer]
-type = "disk"
-max_size = 107374182400  # 100GB
-when_full = "block"
-
-# ClickHouse - 错误日志（单独 sink，可配置不同保留策略）
-[sinks.clickhouse_errors]
-type = "clickhouse"
-inputs = ["route_by_level.error"]
-endpoint = "http://clickhouse:8123"
-database = "logs"
-table = "log_entries"
-skip_unknown_fields = true
-
-[sinks.clickhouse_errors.buffer]
 type = "disk"
 max_size = 53687091200  # 50GB
 when_full = "block"

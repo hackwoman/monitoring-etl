@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # ---- Core Storage ----
   postgres:
@@ -43,13 +41,26 @@ services:
       retries: 5
 
   # ---- Data Pipeline ----
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.0
+    volumes:
+      - ./pipeline/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - app-logs:/var/log/app:ro
+      - otel-storage:/var/lib/otelcol
+    ports:
+      - "4317:4317"    # OTLP gRPC (for traces)
+      - "4318:4319"    # OTLP HTTP (avoid conflict with Vector)
+    depends_on:
+      vector:
+        condition: service_started
+
   vector:
     image: timberio/vector:0.42.0-alpine
     volumes:
       - ./pipeline/vector/vector.toml:/etc/vector/vector.toml:ro
     ports:
-      - "4317:4317"    # OTLP gRPC
-      - "4318:4318"    # OTLP HTTP
+      - "4317:4318"    # Vector OTLP gRPC (forwarded)
+      - "4318:4318"    # Vector OTLP HTTP
       - "8686:8686"    # Vector API (metrics)
     depends_on:
       clickhouse:
@@ -120,3 +131,5 @@ services:
 volumes:
   pgdata:
   chdata:
+  app-logs:
+  otel-storage:

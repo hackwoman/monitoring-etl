@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS logs.log_entries
     attributes      Map(String, String) DEFAULT map(),
     trace_id        String DEFAULT '',
     span_id         String DEFAULT '',
+    endpoint        String DEFAULT '',
+    http_status     UInt16 DEFAULT 0,
+    metrics_json    String DEFAULT '{}',
     labels          Map(String, String) DEFAULT map(),
     timeliness      Enum8('hot'=1, 'warm'=2, 'cool'=3, 'cold'=4) DEFAULT 'hot',
     delay_seconds   UInt32 DEFAULT 0
