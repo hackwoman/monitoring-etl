@@ -39,6 +39,24 @@ docker compose ps
 # Logs: http://localhost:8002/docs
 ```
 
+## Demo 数据工厂
+
+所有 demo 数据从 `demo/topology.py` 一份定义生成，CMDB 和日志模拟共用。
+
+```bash
+# 1. 初始化 CMDB（创建实体 + 关系 + 健康度）
+python demo/factory.py init
+
+# 2. 启动日志模拟器
+python demo/factory.py run                    # 1 req/s 正常场景
+python demo/factory.py run --rps 5            # 5 req/s
+python demo/factory.py run --scenario slow_db # 慢查询故障场景
+python demo/factory.py run --switch-after 60  # 每60秒自动切场景
+
+# 3. 查看状态
+python demo/factory.py status
+```
+
 ## Architecture
 
 ```
