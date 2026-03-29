@@ -23,18 +23,16 @@ transforms:
     inputs:
       - parse_json
     source: |
-      svc = string(.service_name) ?? null
-      hst = string(.host_name) ?? null
-      if svc != null {
-        .cmdb_name = svc
+      if exists(.service_name) {
+        .cmdb_name = string!(.service_name)
         .cmdb_type = "Service"
-      } else if hst != null {
-        .cmdb_name = hst
+      } else if exists(.host_name) {
+        .cmdb_name = string!(.host_name)
         .cmdb_type = "Host"
       } else {
         abort
       }
-      .cmdb_labels = .labels ?? {}
+      .cmdb_labels = object(.labels) ?? {}
 
 sinks:
   # 写入 ClickHouse（主数据流）
