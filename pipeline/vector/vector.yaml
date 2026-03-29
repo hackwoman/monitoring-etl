@@ -26,20 +26,14 @@ transforms:
       .cmdb_name = .service_name ?? .host_name ?? "unknown"
       .cmdb_type = if .service_name != null { "Service" } else { "Host" }
       .cmdb_labels = .labels ?? {}
-
-  # 3. 按实体名分组去重，减少 CMDB API 调用
-  heartbeat_dedupe:
-    type: reduce
-    inputs:
-      - extract_entity
-    group_by:
-      - cmdb_name
-    merge_strategies:
-      cmdb_name: discard
-      cmdb_type: discard
-      cmdb_labels: flat_unique
-    starts_when: true
-    max_events: 1
+      # 只保留心跳需要的字段，减少 payload
+      del(.message)
+      del(.trace_id)
+      del(.span_id)
+      del(.endpoint)
+      del(.http_status)
+      del(.level)
+      del(.timestamp)
 
 sinks:
   # 写入 ClickHouse（主数据流）
@@ -56,11 +50,11 @@ sinks:
       max_events: 10000
 
   # CMDB 心跳（自动发现实体）
-  # 每个去重后的实体 group 发一次 POST
+  # CMDB heartbeat 接口做了去重：有则更新 last_observed，无则创建
   cmdb_heartbeat:
     type: http
     inputs:
-      - heartbeat_dedupe
+      - extract_entity
     uri: http://cmdb-api:8000/api/v1/cmdb/heartbeat
     method: post
     encoding:
@@ -72,7 +66,7 @@ sinks:
       retry_max_duration_secs: 10
     buffer:
       type: memory
-      max_events: 100
+      max_events: 1000
 
 api:
   enabled: true
