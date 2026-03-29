@@ -4,6 +4,16 @@
 
 智能监控数据 ETL 平台，支持数百至数千台云主机规模。
 
+## 核心架构：认知层
+
+```
+数据源 → OTel Collector → Vector ETL → ClickHouse(日志) + PostgreSQL(CMDB 认知层)
+                                    ↓
+                              API Gateway → React 前端 (三视图: 总览/资源/问答)
+```
+
+**认知层设计（Phase 2）：** 一个实体 = 是什么 + 该关注什么 + 现在怎么样 + 影响多大
+
 ## Deploy (Cloud Server)
 
 ```bash
@@ -41,12 +51,12 @@ docker compose ps
 
 | Service | Port | Description |
 |---------|------|-------------|
-| frontend | 3000 | React + Ant Design UI |
+| frontend | 3000 | React + Ant Design UI (三视图: 总览/资源/问答) |
 | api-gateway | 8000 | 统一 API 入口 |
-| cmdb-api | 8001 | CMDB 实体/关系管理 |
+| cmdb-api | 8001 | CMDB 认知层 API (实体/类型/关系/总览/健康度) |
 | log-api | 8002 | 日志查询 (ClickHouse) |
 | vector | 8686 | ETL 管道 |
-| postgres | 5432 | CMDB 存储 |
+| postgres | 5432 | CMDB 认知层存储 |
 | clickhouse | 8123 | 日志存储 |
 
 ## Phase 1 Scope

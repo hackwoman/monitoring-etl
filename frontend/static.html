@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitoring ETL Platform</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f0f2f5; }
+.header { background: #001529; color: #fff; padding: 16px 24px; font-size: 20px; font-weight: bold; }
+.container { max-width: 1400px; margin: 24px auto; padding: 0 24px; }
+.card { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+.card-title { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+.toolbar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+input, select, button { padding: 8px 12px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 14px; }
+input { width: 300px; }
+select { width: 160px; }
+button { background: #1677ff; color: #fff; border: none; cursor: pointer; font-weight: 500; }
+button:hover { background: #4096ff; }
+table { width: 100%; border-collapse: collapse; }
+th { background: #fafafa; text-align: left; padding: 12px; font-weight: 500; border-bottom: 1px solid #f0f0f0; }
+td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+tr:hover td { background: #e6f4ff; }
+.tag { padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+.tag-blue { background: #e6f4ff; color: #1677ff; }
+.tag-red { status: background: #fff2f0; color: #ff4d4f; }
+.tag-orange { background: #fff7e6; color: #fa8c16; }
+.tag-green { background: #f6ffed; color: #52c41a; }
+.msg { max-width: 800px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stats { display: flex; gap: 24px; margin-bottom: 16px; }
+.stat { text-align: center; }
+.stat-num { font-size: 28px; font-weight: 700; color: #1677ff; }
+.stat-label { font-size: 13px; color: #8c8c8c; }
+.tab-bar { display: flex; gap: 0; border-bottom: 1px solid #f0f0f0; margin-bottom: 24px; }
+.tab { padding: 12px 24px; cursor: pointer; border-bottom: 2px solid transparent; }
+.tab.active { border-bottom-color: #1677ff; color: #1677ff; font-weight: 500; }
+.tab:hover { color: #1677ff; }
+.cmdb-table td:first-child { font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="header">🔍 Monitoring ETL Platform</div>
+<div class="container">
+  <div class="tab-bar">
+    <div class="tab active" onclick="showTab('logs')">📋 日志查询</div>
+    <div class="tab" onclick="showTab('cmdb')">📦 CMDB</div>
+  </div>
+
+  <div id="tab-logs">
+    <div class="card">
+      <div class="toolbar">
+        <input type="text" id="searchInput" placeholder="搜索日志内容..." onkeydown="if(event.key==='Enter')searchLogs()">
+        <select id="serviceSelect">
+          <option value="">全部服务</option>
+        </select>
+        <select id="levelSelect">
+          <option value="">全部级别</option>
+          <option value="error">ERROR</option>
+          <option value="warn">WARN</option>
+          <option value="info">INFO</option>
+        </select>
+        <button onclick="searchLogs()">🔍 搜索</button>
+        <span id="totalCount" style="color:#8c8c8c;font-size:13px;margin-left:auto"></span>
+      </div>
+      <table>
+        <thead><tr><th width="180">时间</th><th width="140">服务</th><th width="100">主机</th><th width="70">级别</th><th>日志内容</th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="tab-cmdb" style="display:none">
+    <div class="card">
+      <div class="card-title">CMDB 实体</div>
+      <table class="cmdb-table">
+        <thead><tr><th>名称</th><th>类型</th><th>状态</th><th>标签</th><th>来源</th><th>更新时间</th></tr></thead>
+        <tbody id="cmdbBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/api/v1';
+
+function showTab(name) {
+  document.getElementById('tab-logs').style.display = name === 'logs' ? '' : 'none';
+  document.getElementById('tab-cmdb').style.display = name === 'cmdb' ? '' : 'none';
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.textContent.includes(name === 'logs' ? '日志' : 'CMDB')));
+  if (name === 'cmdb') loadCmdb();
+}
+
+async function loadServices() {
+  try {
+    const r = await fetch(`${API}/cmdb/entities?type_name=Service&limit=100`);
+    const d = await r.json();
+    const sel = document.getElementById('serviceSelect');
+    (d.items || []).forEach(e => {
+      const o = document.createElement('option');
+      o.value = e.name; o.textContent = e.name;
+      sel.appendChild(o);
+    });
+  } catch(e) {
+    // fallback
+    ['gateway','order-service','payment-service','inventory-service'].forEach(s => {
+      const o = document.createElement('option');
+      o.value = s; o.textContent = s;
+      document.getElementById('serviceSelect').appendChild(o);
+    });
+  }
+}
+
+async function searchLogs() {
+  const params = new URLSearchParams();
+  const q = document.getElementById('searchInput').value;
+  const svc = document.getElementById('serviceSelect').value;
+  const lvl = document.getElementById('levelSelect').value;
+  if (q) params.set('q', q);
+  if (svc) params.set('service', svc);
+  if (lvl) params.set('level', lvl);
+  params.set('limit', '200');
+
+  try {
+    const r = await fetch(`${API}/logs/search?${params}`);
+    const d = await r.json();
+    const tbody = document.getElementById('logBody');
+    tbody.innerHTML = '';
+    (d.items || []).forEach(item => {
+      const levelColor = item.level === 'error' ? 'tag-red' : item.level === 'warn' ? 'tag-orange' : 'tag-blue';
+      tbody.innerHTML += `<tr>
+        <td>${item.timestamp || '-'}</td>
+        <td><span class="tag tag-blue">${item.service_name}</span></td>
+        <td>${item.host_name || '-'}</td>
+        <td><span class="tag ${levelColor}">${(item.level||'').toUpperCase()}</span></td>
+        <td class="msg" title="${escHtml(item.message)}">${escHtml(item.message)}</td>
+      </tr>`;
+    });
+    document.getElementById('totalCount').textContent = `共 ${d.total || 0} 条`;
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+async function loadCmdb() {
+  try {
+    const r = await fetch(`${API}/cmdb/entities?limit=100`);
+    const d = await r.json();
+    const tbody = document.getElementById('cmdbBody');
+    tbody.innerHTML = '';
+    (d.items || []).forEach(e => {
+      const labels = Object.entries(e.labels || {}).map(([k,v]) => `${k}:${v}`).join(', ');
+      tbody.innerHTML += `<tr>
+        <td>${e.name}</td>
+        <td><span class="tag tag-blue">${e.type_name}</span></td>
+        <td><span class="tag tag-green">${e.status}</span></td>
+        <td>${labels || '-'}</td>
+        <td>${e.source}</td>
+        <td>${e.updated_at ? new Date(e.updated_at).toLocaleString() : '-'}</td>
+      </tr>`;
+    });
+  } catch(e) { console.error(e); }
+}
+
+function escHtml(s) { return (s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// Init
+loadServices();
+searchLogs();
+</script>
+</body>
+</html>

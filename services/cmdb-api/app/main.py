@@ -1,12 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import entities, types, health
+from app.routers import entities, types, health, overview
 from app.database import init_db
 
 app = FastAPI(
     title="CMDB API",
-    description="配置管理数据库 - 实体/关系/类型管理",
-    version="0.1.0",
+    description="可观测智能平台 - 认知层API",
+    version="0.2.0",
 )
 
 app.add_middleware(
@@ -20,6 +20,7 @@ app.add_middleware(
 app.include_router(health.router, tags=["health"])
 app.include_router(entities.router, prefix="/api/v1/cmdb", tags=["cmdb"])
 app.include_router(types.router, prefix="/api/v1/cmdb", tags=["types"])
+app.include_router(overview.router, prefix="/api/v1", tags=["overview"])
 
 
 @app.on_event("startup")

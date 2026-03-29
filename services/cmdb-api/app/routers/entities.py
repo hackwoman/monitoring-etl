@@ -1,12 +1,13 @@
-"""CMDB Entity API routes."""
+"""CMDB Entity API routes - Phase 2 认知层增强版。"""
 import uuid
-from typing import Optional, List
+from typing import Optional
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_session
-from app.models import Entity, Relationship, RelationshipTypeDef
+from app.models import Entity, Relationship, EntityTypeDef
 
 router = APIRouter()
 
@@ -20,6 +21,7 @@ class EntityCreate(BaseModel):
     attributes: dict = Field(default_factory=dict)
     labels: dict = Field(default_factory=dict)
     source: str = "manual"
+    biz_service: Optional[str] = None
 
 
 class EntityUpdate(BaseModel):
@@ -27,22 +29,11 @@ class EntityUpdate(BaseModel):
     attributes: Optional[dict] = None
     labels: Optional[dict] = None
     status: Optional[str] = None
-
-
-class EntityResponse(BaseModel):
-    guid: str
-    type_name: str
-    name: str
-    qualified_name: str
-    attributes: dict
-    labels: dict
-    status: str
-    source: str
-    created_at: str
-    updated_at: str
-
-    class Config:
-        from_attributes = True
+    biz_service: Optional[str] = None
+    health_score: Optional[int] = None
+    health_level: Optional[str] = None
+    health_detail: Optional[dict] = None
+    risk_score: Optional[int] = None
 
 
 class RelationshipCreate(BaseModel):
@@ -51,20 +42,6 @@ class RelationshipCreate(BaseModel):
     attributes: dict = Field(default_factory=dict)
     source: str = "manual"
     confidence: float = 1.0
-
-
-class RelationshipResponse(BaseModel):
-    guid: str
-    type_name: str
-    end1_guid: str
-    end2_guid: str
-    attributes: dict
-    source: str
-    confidence: float
-    is_active: bool
-
-    class Config:
-        from_attributes = True
 
 
 # ---- Helper ----
@@ -79,20 +56,84 @@ def _entity_to_dict(e: Entity) -> dict:
         "labels": e.labels or {},
         "status": e.status,
         "source": e.source,
+        "biz_service": e.biz_service,
+        "health_score": e.health_score,
+        "health_level": e.health_level,
+        "health_detail": e.health_detail,
+        "risk_score": e.risk_score,
+        "propagation_hops": e.propagation_hops,
+        "blast_radius": e.blast_radius,
         "created_at": e.created_at.isoformat() if e.created_at else None,
         "updated_at": e.updated_at.isoformat() if e.updated_at else None,
     }
 
 
+def _entity_cognition(e: Entity, type_def: EntityTypeDef, relations: list) -> dict:
+    """构建实体完整认知（四个维度）。"""
+    definition = type_def.definition or {}
+    return {
+        # ① 身份
+        "identity": {
+            "guid": str(e.guid),
+            "type_name": e.type_name,
+            "display_name": type_def.display_name or e.type_name,
+            "category": type_def.category,
+            "name": e.name,
+            "qualified_name": e.qualified_name,
+            "attributes": e.attributes or {},
+            "labels": e.labels or {},
+            "source": e.source,
+        },
+        # ② 期望
+        "expectation": {
+            "metrics": definition.get("metrics", []),
+            "relations": definition.get("relations", []),
+            "health_model": definition.get("health"),
+        },
+        # ③ 观测
+        "observation": {
+            "health_score": e.health_score,
+            "health_level": e.health_level,
+            "health_detail": e.health_detail,
+            "last_observed": e.last_observed.isoformat() if e.last_observed else None,
+            "expected_metrics": e.expected_metrics or [],
+        },
+        # ④ 影响
+        "impact": {
+            "biz_service": e.biz_service,
+            "risk_score": e.risk_score,
+            "propagation_hops": e.propagation_hops,
+            "blast_radius": e.blast_radius,
+            "relations": relations,
+        },
+    }
+
+
 # ---- Routes ----
 
-@router.post("/entities", response_model=EntityResponse, status_code=201)
+@router.post("/entities", status_code=201)
 async def create_entity(
     body: EntityCreate,
     session: AsyncSession = Depends(get_session),
 ):
     """Create a new entity."""
     qname = body.qualified_name or f"{body.type_name}:{body.name}"
+
+    # Check duplicate
+    existing = await session.scalar(
+        select(Entity).where(Entity.qualified_name == qname)
+    )
+    if existing:
+        raise HTTPException(409, f"Entity with qualified_name '{qname}' already exists")
+
+    # Get type definition for expected metrics/relations
+    type_def = await session.get(EntityTypeDef, body.type_name)
+    expected_metrics = []
+    expected_relations = []
+    if type_def and type_def.definition:
+        expected_metrics = type_def.definition.get("metrics", [])
+        expected_relations = type_def.definition.get("relations", [])
+
     entity = Entity(
         type_name=body.type_name,
         name=body.name,
@@ -100,6 +141,11 @@ async def create_entity(
         attributes=body.attributes,
         labels=body.labels,
         source=body.source,
+        biz_service=body.biz_service,
+        expected_metrics=expected_metrics,
+        expected_relations=expected_relations,
+        health_score=100,
+        health_level="healthy",
     )
     session.add(entity)
     await session.commit()
@@ -110,25 +156,39 @@ async def create_entity(
 @router.get("/entities")
 async def list_entities(
     type_name: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
     label_key: Optional[str] = Query(None),
     label_value: Optional[str] = Query(None),
+    biz_service: Optional[str] = Query(None),
+    health_level: Optional[str] = Query(None),
     status: Optional[str] = Query("active"),
     search: Optional[str] = Query(None),
+    sort: str = Query("updated_at", regex="^(updated_at|name|health_score|risk_score)$"),
+    order: str = Query("desc", regex="^(asc|desc)$"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),
 ):
-    """List entities with filters."""
+    """List entities with filters — 支持健康度/风险度/业务/标签筛选和排序。"""
     query = select(Entity)
     count_query = select(func.count(Entity.guid))
 
     conditions = []
     if type_name:
         conditions.append(Entity.type_name == type_name)
+    if category:
+        # Join with type_def for category filter
+        query = query.join(EntityTypeDef, Entity.type_name == EntityTypeDef.type_name)
+        count_query = count_query.join(EntityTypeDef, Entity.type_name == EntityTypeDef.type_name)
+        conditions.append(EntityTypeDef.category == category)
     if status:
         conditions.append(Entity.status == status)
     if label_key and label_value:
         conditions.append(Entity.labels[label_key].astext == label_value)
+    if biz_service:
+        conditions.append(Entity.biz_service == biz_service)
+    if health_level:
+        conditions.append(Entity.health_level == health_level)
     if search:
         conditions.append(Entity.name.ilike(f"%{search}%"))
 
@@ -137,7 +197,20 @@ async def list_entities(
         count_query = count_query.where(and_(*conditions))
 
     total = await session.scalar(count_query)
-    query = query.order_by(Entity.updated_at.desc()).limit(limit).offset(offset)
+
+    # Sorting
+    sort_col = {
+        "updated_at": Entity.updated_at,
+        "name": Entity.name,
+        "health_score": Entity.health_score,
+        "risk_score": Entity.risk_score,
+    }[sort]
+    if order == "desc":
+        query = query.order_by(sort_col.desc().nullslast())
+    else:
+        query = query.order_by(sort_col.asc().nullsfirst())
+
+    query = query.limit(limit).offset(offset)
     result = await session.execute(query)
     entities = result.scalars().all()
 
@@ -164,6 +237,78 @@ async def get_entity(
     if not entity:
         raise HTTPException(404, "Entity not found")
     return _entity_to_dict(entity)
+
+
+@router.get("/entities/{entity_id}/cognition")
+async def get_entity_cognition(
+    entity_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """获取实体完整认知 — 四个维度：身份/期望/观测/影响。"""
+    try:
+        eid = uuid.UUID(entity_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid UUID")
+
+    entity = await session.get(Entity, eid)
+    if not entity:
+        raise HTTPException(404, "Entity not found")
+
+    # Get type definition
+    type_def = await session.get(EntityTypeDef, entity.type_name)
+    if not type_def:
+        type_def = EntityTypeDef(type_name=entity.type_name, definition={})
+
+    # Get relationships
+    rel_query = select(Relationship).where(
+        and_(
+            Relationship.is_active == True,
+            or_(Relationship.end1_guid == eid, Relationship.end2_guid == eid),
+        )
+    )
+    rel_result = await session.execute(rel_query)
+    rels = rel_result.scalars().all()
+
+    relations = []
+    for r in rels:
+        is_outgoing = r.end1_guid == eid
+        relations.append({
+            "guid": str(r.guid),
+            "type": r.type_name,
+            "direction": "outgoing" if is_outgoing else "incoming",
+            "peer_guid": str(r.end2_guid if is_outgoing else r.end1_guid),
+            "attributes": r.attributes or {},
+            "confidence": r.confidence,
+            "source": r.source,
+        })
+
+    return _entity_cognition(entity, type_def, relations)
+
+
+@router.get("/entities/{entity_id}/health")
+async def get_entity_health(
+    entity_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get entity health status."""
+    try:
+        eid = uuid.UUID(entity_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid UUID")
+
+    entity = await session.get(Entity, eid)
+    if not entity:
+        raise HTTPException(404, "Entity not found")
+
+    return {
+        "guid": str(entity.guid),
+        "name": entity.name,
+        "type_name": entity.type_name,
+        "health_score": entity.health_score,
+        "health_level": entity.health_level,
+        "health_detail": entity.health_detail,
+        "last_observed": entity.last_observed.isoformat() if entity.last_observed else None,
+    }
 
 
 @router.put("/entities/{entity_id}")
@@ -229,6 +374,8 @@ async def create_relationship(
         type_name=body.type_name,
         end1_guid=e1,
         end2_guid=e2,
+        from_guid=e1,
+        to_guid=e2,
         attributes=body.attributes,
         source=body.source,
         confidence=body.confidence,
@@ -240,8 +387,8 @@ async def create_relationship(
     return {
         "guid": str(rel.guid),
         "type_name": rel.type_name,
-        "end1_guid": str(rel.end1_guid),
-        "end2_guid": str(rel.end2_guid),
+        "from_guid": str(rel.from_guid or rel.end1_guid),
+        "to_guid": str(rel.to_guid or rel.end2_guid),
         "attributes": rel.attributes,
         "source": rel.source,
         "confidence": rel.confidence,
@@ -270,7 +417,7 @@ async def list_relationships(
         conditions.append(Relationship.end2_guid == eid)
     else:
         conditions.append(
-            (Relationship.end1_guid == eid) | (Relationship.end2_guid == eid)
+            or_(Relationship.end1_guid == eid, Relationship.end2_guid == eid)
         )
 
     if relation_type:
@@ -286,8 +433,8 @@ async def list_relationships(
             {
                 "guid": str(r.guid),
                 "type_name": r.type_name,
-                "end1_guid": str(r.end1_guid),
-                "end2_guid": str(r.end2_guid),
+                "from_guid": str(r.from_guid or r.end1_guid),
+                "to_guid": str(r.to_guid or r.end2_guid),
                 "attributes": r.attributes or {},
                 "source": r.source,
                 "confidence": r.confidence,
@@ -311,10 +458,7 @@ async def enrich_entity(
     body: EnrichRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """
-    Called by Vector ETL to enrich log data with CMDB info.
-    Returns entity attributes and labels if found.
-    """
+    """Called by Vector ETL to enrich log data with CMDB info."""
     result = {}
 
     if body.service_name:
@@ -338,10 +482,7 @@ async def entity_heartbeat(
     body: dict,
     session: AsyncSession = Depends(get_session),
 ):
-    """
-    Called by OTel Agent to report entity liveness.
-    Creates entity if not exists.
-    """
+    """Called by OTel Agent to report entity liveness. Creates entity if not exists."""
     name = body.get("name")
     type_name = body.get("type_name", "Host")
     labels = body.get("labels", {})
@@ -354,16 +495,28 @@ async def entity_heartbeat(
     entity = await session.scalar(q)
 
     if not entity:
+        # Get type definition for expected metrics
+        type_def = await session.get(EntityTypeDef, type_name)
+        expected_metrics = []
+        expected_relations = []
+        if type_def and type_def.definition:
+            expected_metrics = type_def.definition.get("metrics", [])
+            expected_relations = type_def.definition.get("relations", [])
+
         entity = Entity(
             type_name=type_name,
             name=name,
             qualified_name=qname,
             labels=labels,
             source="heartbeat",
+            expected_metrics=expected_metrics,
+            expected_relations=expected_relations,
+            health_score=100,
+            health_level="healthy",
         )
         session.add(entity)
 
-    entity.updated_at = __import__("datetime").datetime.utcnow()
+    entity.last_observed = datetime.utcnow()
     await session.commit()
 
     return {"status": "ok", "entity_guid": str(entity.guid)}
