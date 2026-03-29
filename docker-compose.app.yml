@@ -1,0 +1,66 @@
+# docker-compose.app.yml — 应用层（实例 B: 8.146.232.9）
+# 数据层在实例 A (47.93.61.196) 运行 postgres + clickhouse + redis
+#
+# 用法: docker compose -f docker-compose.app.yml up -d --build
+
+services:
+  # ---- 后端服务 ----
+  cmdb-api:
+    build:
+      context: ./services/cmdb-api
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@47.93.61.196:5432/cmdb
+    ports:
+      - "8001:8000"
+    restart: unless-stopped
+
+  log-api:
+    build:
+      context: ./services/log-api
+      dockerfile: Dockerfile
+    environment:
+      CLICKHOUSE_HOST: 47.93.61.196
+      CLICKHOUSE_PORT: "8123"
+      CLICKHOUSE_DATABASE: logs
+    ports:
+      - "8002:8000"
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    environment:
+      CMDB_API_URL: http://cmdb-api:8000
+      LOG_API_URL: http://log-api:8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - cmdb-api
+      - log-api
+    restart: unless-stopped
+
+  # ---- 数据管道 ----
+  vector:
+    image: timberio/vector:0.42.0-alpine
+    volumes:
+      - ./pipeline/vector/vector.yaml:/etc/vector/vector.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8686:8686"
+    depends_on:
+      - cmdb-api
+    restart: unless-stopped
+
+  # ---- 前端 ----
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
+    restart: unless-stopped

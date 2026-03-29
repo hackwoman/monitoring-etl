@@ -331,11 +331,11 @@ def _flush_spans(spans):
         "attributes", "labels",
     ]
 
-    def _us_to_dt64(us):
-        """微秒时间戳 → DateTime64(3) 字符串"""
+    def _us_to_dt(us):
+        """微秒时间戳 → DateTime 字符串"""
         ts = us / 1_000_000
         dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-        return dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
 
     lines = []
     for s in spans:
@@ -344,8 +344,8 @@ def _flush_spans(spans):
             "span_id": s.get("span_id", ""),
             "parent_span_id": s.get("parent_span_id", ""),
             "span_name": s.get("span_name", ""),
-            "start_time": _us_to_dt64(s.get("start_time_us", 0)),
-            "end_time": _us_to_dt64(s.get("end_time_us", 0)),
+            "start_time": _us_to_dt(s.get("start_time_us", 0)),
+            "end_time": _us_to_dt(s.get("end_time_us", 0)),
             "duration_ms": str(s.get("duration_us", 0) // 1000),
             "start_time_us": str(s.get("start_time_us", 0)),
             "duration_us": str(s.get("duration_us", 0)),

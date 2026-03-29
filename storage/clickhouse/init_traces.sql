@@ -7,38 +7,28 @@ CREATE TABLE IF NOT EXISTS traces.spans
     parent_span_id    String DEFAULT '',
     span_name         String,
     
-    -- 时间 (直接用 DateTime, factory 里转换)
-    start_time        DateTime64(3),
-    end_time          DateTime64(3),
+    start_time        DateTime,
+    end_time          DateTime,
     duration_ms       UInt64,
-    
-    -- 原始微秒（保留，供排序用）
     start_time_us     UInt64 DEFAULT 0,
     duration_us       UInt64 DEFAULT 0,
     
-    -- 来源
     service_name      LowCardinality(String),
     host_name         LowCardinality(String) DEFAULT '',
     endpoint          String DEFAULT '',
-    
-    -- 调用关系
     peer_service      LowCardinality(String) DEFAULT '',
     span_kind         LowCardinality(String) DEFAULT 'internal',
     
-    -- 状态
     status_code       LowCardinality(String) DEFAULT 'ok',
     status_message    String DEFAULT '',
     
-    -- HTTP
     http_method       LowCardinality(String) DEFAULT '',
     http_status_code  UInt16 DEFAULT 0,
     http_url          String DEFAULT '',
     
-    -- 数据库
     db_system         LowCardinality(String) DEFAULT '',
     db_operation      String DEFAULT '',
     
-    -- 额外属性
     attributes        Map(String, String) DEFAULT map(),
     labels            Map(String, String) DEFAULT map(),
     
