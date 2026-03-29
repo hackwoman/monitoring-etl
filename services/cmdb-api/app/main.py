@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import entities, types, health, overview
+from app.routers import entities, types, health, overview, discover
 from app.database import init_db
 
 app = FastAPI(
@@ -21,6 +21,7 @@ app.include_router(health.router, tags=["health"])
 app.include_router(entities.router, prefix="/api/v1/cmdb", tags=["cmdb"])
 app.include_router(types.router, prefix="/api/v1/cmdb", tags=["types"])
 app.include_router(overview.router, prefix="/api/v1", tags=["overview"])
+app.include_router(discover.router, prefix="/api/v1/cmdb", tags=["discover"])
 
 
 @app.on_event("startup")

@@ -8,6 +8,7 @@ sources:
       strategy: device_and_inode
 
 transforms:
+  # 1. 解析 JSON 日志
   parse_json:
     type: remap
     inputs:
@@ -15,10 +16,34 @@ transforms:
     source: |
       . = parse_json!(.message)
       .source = "file"
-      .timeliness = "hot"
-      .delay_seconds = 0
+
+  # 2. 提取实体信息，准备 CMDB 心跳
+  extract_entity:
+    type: remap
+    inputs:
+      - parse_json
+    source: |
+      .cmdb_name = .service_name ?? .host_name ?? "unknown"
+      .cmdb_type = if .service_name != null { "Service" } else { "Host" }
+      .cmdb_labels = .labels ?? {}
+
+  # 3. 发送心跳到 CMDB（自动创建实体）
+  #    Vector dedupe 会合并相同 name 的心跳，减少 API 调用
+  heartbeat_dedupe:
+    type: reduce
+    inputs:
+      - extract_entity
+    group_by:
+      - cmdb_name
+    merge_strategies:
+      cmdb_name: discard
+      cmdb_type: discard
+      cmdb_labels: merge
+    starts_when: true
+    max_events: 1
 
 sinks:
+  # 写入 ClickHouse（主数据流）
   clickhouse_logs:
     type: clickhouse
     inputs:
@@ -30,6 +55,25 @@ sinks:
     buffer:
       type: memory
       max_events: 10000
+
+  # CMDB 心跳（自动发现实体）
+  # 每个去重后的实体 group 发一次 POST
+  cmdb_heartbeat:
+    type: http
+    inputs:
+      - heartbeat_dedupe
+    uri: http://cmdb-api:8000/api/v1/cmdb/heartbeat
+    method: post
+    encoding:
+      codec: json
+    framing:
+      method: newline_delimited
+    request:
+      timeout_secs: 5
+      retry_max_duration_secs: 10
+    buffer:
+      type: memory
+      max_events: 100
 
 api:
   enabled: true

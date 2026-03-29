@@ -475,27 +475,52 @@ async def enrich_entity(
     return result
 
 
-# ---- Heartbeat (for Agent) ----
+# ---- Heartbeat (Agent + Vector ETL 自动发现) ----
 
 @router.post("/heartbeat")
 async def entity_heartbeat(
     body: dict,
     session: AsyncSession = Depends(get_session),
 ):
-    """Called by OTel Agent to report entity liveness. Creates entity if not exists."""
-    name = body.get("name")
-    type_name = body.get("type_name", "Host")
-    labels = body.get("labels", {})
-
+    """
+    自动发现实体：有则更新 last_observed，无则创建。
+    兼容两种格式：
+    - Agent 格式: {"name": "x", "type_name": "Service", "labels": {}}
+    - Vector 格式: {"cmdb_name": "x", "cmdb_type": "Service", "cmdb_labels": {}}
+    - 也兼容: {"service_name": "x"} → type=Service, {"host_name": "x"} → type=Host
+    """
+    # 解析实体名和类型（兼容多种格式）
+    name = body.get("name") or body.get("cmdb_name") or body.get("service_name") or body.get("host_name")
     if not name:
-        raise HTTPException(400, "name is required")
+        raise HTTPException(400, "name/cmdb_name/service_name/host_name is required")
 
+    if body.get("cmdb_type"):
+        type_name = body["cmdb_type"]
+    elif body.get("type_name"):
+        type_name = body["type_name"]
+    elif body.get("service_name"):
+        type_name = "Service"
+    elif body.get("host_name"):
+        type_name = "Host"
+    else:
+        type_name = "Host"
+
+    labels = body.get("labels") or body.get("cmdb_labels") or {}
+
+    # 查找已有实体
     qname = f"{type_name}:{name}"
     q = select(Entity).where(Entity.qualified_name == qname)
     entity = await session.scalar(q)
 
-    if not entity:
-        # Get type definition for expected metrics
+    if entity:
+        # 已存在：只更新 last_observed 和 labels
+        entity.last_observed = datetime.utcnow()
+        if labels:
+            existing_labels = entity.labels or {}
+            existing_labels.update(labels)
+            entity.labels = existing_labels
+    else:
+        # 新实体：自动创建
         type_def = await session.get(EntityTypeDef, type_name)
         expected_metrics = []
         expected_relations = []
@@ -508,7 +533,7 @@ async def entity_heartbeat(
             name=name,
             qualified_name=qname,
             labels=labels,
-            source="heartbeat",
+            source="auto_discovered",
             expected_metrics=expected_metrics,
             expected_relations=expected_relations,
             health_score=100,
@@ -516,7 +541,6 @@ async def entity_heartbeat(
         )
         session.add(entity)
 
-    entity.last_observed = datetime.utcnow()
     await session.commit()
 
-    return {"status": "ok", "entity_guid": str(entity.guid)}
+    return {"status": "ok", "action": "created" if entity.source == "auto_discovered" else "updated", "entity_guid": str(entity.guid)}
