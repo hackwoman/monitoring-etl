@@ -28,14 +28,15 @@ async def entity_heartbeat(
 
     # 解析请求体：单个 JSON 或 NDJSON
     payloads = []
-    if raw_text.startswith("{"):
-        # 单个 JSON
-        try:
-            payloads.append(json.loads(raw_text))
-        except json.JSONDecodeError:
-            raise HTTPException(400, "Invalid JSON")
-    else:
-        # NDJSON：逐行解析
+    try:
+        # 先尝试单 JSON
+        parsed = json.loads(raw_text)
+        if isinstance(parsed, list):
+            payloads = parsed
+        else:
+            payloads = [parsed]
+    except json.JSONDecodeError:
+        # 单 JSON 失败 → 按行解析 NDJSON
         for line in raw_text.split("\n"):
             line = line.strip()
             if line and line.startswith("{"):
