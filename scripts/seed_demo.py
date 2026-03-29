@@ -30,6 +30,8 @@ biz = post("/entities", {
     "source": "manual"
 })
 
+biz_guid = biz["guid"] if biz else None
+
 biz2 = post("/entities", {
     "type_name": "Business",
     "name": "用户注册",
@@ -119,9 +121,9 @@ net = post("/entities", {
 print("\n🔗 创建关系...")
 rels = [
     # 业务包含服务
-    (biz, svcs.get("payment-service"), "includes"),
-    (biz, svcs.get("order-service"), "includes"),
-    (biz, svcs.get("gateway"), "includes"),
+    (biz_guid, svcs.get("payment-service"), "includes"),
+    (biz_guid, svcs.get("order-service"), "includes"),
+    (biz_guid, svcs.get("gateway"), "includes"),
     # 服务调用
     (svcs.get("gateway"), svcs.get("payment-service"), "calls"),
     (svcs.get("gateway"), svcs.get("order-service"), "calls"),
