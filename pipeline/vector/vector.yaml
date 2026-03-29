@@ -23,9 +23,9 @@ transforms:
     inputs:
       - parse_json
     source: |
-      .cmdb_name = .service_name ?? .host_name ?? .host ?? "unknown"
+      name = to_string(.service_name) ?? to_string(.host_name) ?? "unknown"
+      .cmdb_name = name
       .cmdb_type = "Service"
-      .cmdb_labels = .labels ?? {}
 
 sinks:
   # 写入 ClickHouse（主数据流）
