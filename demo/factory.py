@@ -361,8 +361,8 @@ def _flush_spans(spans):
             "http_url": s.get("http_url", ""),
             "db_system": s.get("db_system", ""),
             "db_operation": s.get("db_operation", ""),
-            "attributes": json.dumps(s.get("attributes", {}), ensure_ascii=False).replace("'", "\\'"),
-            "labels": json.dumps(s.get("labels", {}), ensure_ascii=False).replace("'", "\\'"),
+            "attributes": "{'trace_id':'" + s.get("trace_id","") + "'}",
+            "labels": "{'env':'prod'}",
         }
         values = ",".join(f"'{row_data.get(c, '')}'" for c in columns)
         lines.append(f"({values})")
