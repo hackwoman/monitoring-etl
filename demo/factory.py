@@ -321,7 +321,8 @@ def _flush_spans(spans):
 
     columns = [
         "trace_id", "span_id", "parent_span_id", "span_name",
-        "start_time_us", "end_time_us", "duration_us",
+        "start_time", "end_time", "duration_ms",
+        "start_time_us", "duration_us",
         "service_name", "host_name", "endpoint",
         "peer_service", "span_kind",
         "status_code", "status_message",
@@ -330,25 +331,46 @@ def _flush_spans(spans):
         "attributes", "labels",
     ]
 
+    def _us_to_dt64(us):
+        """微秒时间戳 → DateTime64(3) 字符串"""
+        ts = us / 1_000_000
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        return dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
     lines = []
     for s in spans:
-        row = []
-        for col in columns:
-            v = s.get(col, "")
-            if isinstance(v, dict):
-                row.append(json.dumps(v, ensure_ascii=False))
-            elif isinstance(v, str):
-                row.append(v.replace("'", "\\'"))
-            else:
-                row.append(str(v))
-        lines.append("(" + ",".join(f"'{v}'" for v in row) + ")")
+        row_data = {
+            "trace_id": s.get("trace_id", ""),
+            "span_id": s.get("span_id", ""),
+            "parent_span_id": s.get("parent_span_id", ""),
+            "span_name": s.get("span_name", ""),
+            "start_time": _us_to_dt64(s.get("start_time_us", 0)),
+            "end_time": _us_to_dt64(s.get("end_time_us", 0)),
+            "duration_ms": str(s.get("duration_us", 0) // 1000),
+            "start_time_us": str(s.get("start_time_us", 0)),
+            "duration_us": str(s.get("duration_us", 0)),
+            "service_name": s.get("service_name", ""),
+            "host_name": s.get("host_name", ""),
+            "endpoint": s.get("endpoint", ""),
+            "peer_service": s.get("peer_service", ""),
+            "span_kind": s.get("span_kind", "internal"),
+            "status_code": s.get("status_code", "ok"),
+            "status_message": (s.get("status_message") or "").replace("'", "\\'"),
+            "http_method": s.get("http_method", ""),
+            "http_status_code": str(s.get("http_status_code", 0)),
+            "http_url": s.get("http_url", ""),
+            "db_system": s.get("db_system", ""),
+            "db_operation": s.get("db_operation", ""),
+            "attributes": json.dumps(s.get("attributes", {}), ensure_ascii=False).replace("'", "\\'"),
+            "labels": json.dumps(s.get("labels", {}), ensure_ascii=False).replace("'", "\\'"),
+        }
+        values = ",".join(f"'{row_data.get(c, '')}'" for c in columns)
+        lines.append(f"({values})")
 
     sql = f"INSERT INTO traces.spans ({','.join(columns)}) VALUES {','.join(lines)}"
     try:
         r = requests.post(CLICKHOUSE_URL, data=sql, timeout=30)
-        if r.status_code == 200:
-            pass  # 成功
-        else:
+        if r.status_code != 200:
             print(f"   ⚠️ ClickHouse 写入失败: {r.status_code} {r.text[:200]}")
     except Exception as e:
         print(f"   ⚠️ ClickHouse 异常: {e}")
@@ -390,8 +412,8 @@ def query_service_topology():
         p.service_name as caller,
         s.service_name as callee,
         count() as call_count,
-        round(avg(s.duration_us) / 1000, 2) as avg_latency_ms,
-        round(quantile(0.99)(s.duration_us) / 1000, 2) as p99_latency_ms,
+        round(avg(s.duration_ms), 2) as avg_latency_ms,
+        round(quantile(0.99)(s.duration_ms), 2) as p99_latency_ms,
         round(countIf(s.status_code = 'error') * 100.0 / count(), 2) as error_rate
     FROM traces.spans p
     INNER JOIN traces.spans s ON p.trace_id = s.trace_id AND s.parent_span_id = p.span_id
