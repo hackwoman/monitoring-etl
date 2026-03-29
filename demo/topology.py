@@ -1,8 +1,7 @@
 """
 Demo 数据工厂 — 共享拓扑定义。
 
-CMDB 实体创建、日志模拟、指标生成，全部从这里取数据。
-保证数据一致性。
+CMDB 实体创建、日志模拟、Trace Span 模拟，全部从这里取数据。
 """
 
 # ============================================================
@@ -46,7 +45,7 @@ HOSTS = {
 }
 
 # ============================================================
-# 服务定义（同时用于 CMDB + 日志模拟）
+# 服务定义（同时用于 CMDB + 日志 + Trace）
 # ============================================================
 
 SERVICES = {
@@ -56,7 +55,6 @@ SERVICES = {
         "business": "在线支付",
         "attrs": {"language": "Java", "framework": "SpringCloudGateway", "port": 80, "team": "架构组"},
         "labels": {"env": "prod", "team": "架构组", "business_line": "支付"},
-        # 日志模拟配置
         "endpoints": [
             {"method": "POST", "path": "/api/order", "base_latency": 15, "weight": 40},
             {"method": "POST", "path": "/api/login", "base_latency": 10, "weight": 30},
@@ -147,10 +145,6 @@ MIDDLEWARES = {
     },
 }
 
-# ============================================================
-# 网络设备
-# ============================================================
-
 NETWORK_DEVICES = {
     "核心交换机-01": {
         "attrs": {"vendor": "Cisco", "model": "C9300", "mgmt_ip": "10.0.0.1", "port_count": 48},
@@ -159,44 +153,83 @@ NETWORK_DEVICES = {
 }
 
 # ============================================================
-# 关系定义（统一声明）
+# 关系定义
 # ============================================================
 
-# (source_key, target_key, relation_type, source_pool, target_pool)
 RELATIONS = [
-    # 业务 → 服务
     ("在线支付", "gateway", "includes", "businesses", "services"),
     ("在线支付", "order-service", "includes", "businesses", "services"),
     ("在线支付", "payment-service", "includes", "businesses", "services"),
     ("在线支付", "inventory-service", "includes", "businesses", "services"),
     ("用户注册", "user-service", "includes", "businesses", "services"),
-    # 服务调用
     ("gateway", "order-service", "calls", "services", "services"),
     ("gateway", "payment-service", "calls", "services", "services"),
     ("gateway", "inventory-service", "calls", "services", "services"),
     ("gateway", "user-service", "calls", "services", "services"),
     ("order-service", "payment-service", "calls", "services", "services"),
-    # 服务依赖数据库
     ("payment-service", "payment-db", "depends_on", "services", "middlewares"),
     ("payment-service", "user-cache", "depends_on", "services", "middlewares"),
     ("order-service", "order-db", "depends_on", "services", "middlewares"),
     ("inventory-service", "order-db", "depends_on", "services", "middlewares"),
     ("user-service", "user-cache", "depends_on", "services", "middlewares"),
     ("user-service", "session-cache", "depends_on", "services", "middlewares"),
-    # 服务运行在主机 (由 services.*.host 字段隐含定义)
-    # 数据库运行在主机 (由 middlewares.*.host 字段隐含定义)
 ]
 
 # ============================================================
-# 调用链定义（日志模拟用）
+# 调用链定义（带 span 语义）
 # ============================================================
+# 每条链定义完整的 span 树：服务调用 + DB 查询 + Cache 查询
+#
+# 格式: (service, endpoint, children_spans)
+# children_spans = [(child_service, child_endpoint, kind, db_info)]
 
 CALL_CHAINS = {
-    "create_order": ["gateway", "order-service", "payment-service", "inventory-service"],
-    "user_login": ["gateway", "user-service"],
-    "query_inventory": ["gateway", "inventory-service"],
-    "check_payment": ["gateway", "payment-service"],
-    "user_register": ["gateway", "user-service"],
+    "create_order": {
+        "description": "用户下单",
+        "spans": [
+            ("gateway", "POST /api/order", "server", [
+                ("order-service", "POST /order/create", "client", [
+                    ("payment-service", "POST /pay/process", "client", [
+                        ("payment-db", "INSERT orders", "client", []),
+                        ("user-cache", "SETEX cache:user", "client", []),
+                    ]),
+                    ("inventory-service", "POST /stock/deduct", "client", [
+                        ("order-db", "UPDATE stock SET", "client", []),
+                    ]),
+                ]),
+            ]),
+        ],
+    },
+    "user_login": {
+        "description": "用户登录",
+        "spans": [
+            ("gateway", "POST /api/login", "server", [
+                ("user-service", "POST /user/login", "client", [
+                    ("session-cache", "SET session:xxx", "client", []),
+                ]),
+            ]),
+        ],
+    },
+    "query_inventory": {
+        "description": "查询库存",
+        "spans": [
+            ("gateway", "GET /api/inventory", "server", [
+                ("inventory-service", "GET /stock/query", "client", [
+                    ("order-db", "SELECT * FROM stock", "client", []),
+                ]),
+            ]),
+        ],
+    },
+    "check_payment": {
+        "description": "查询支付状态",
+        "spans": [
+            ("gateway", "GET /api/payment", "server", [
+                ("payment-service", "GET /pay/status", "client", [
+                    ("payment-db", "SELECT * FROM payments", "client", []),
+                ]),
+            ]),
+        ],
+    },
 }
 
 # ============================================================
@@ -212,12 +245,14 @@ SCENARIOS = {
         "description": "payment-db 慢查询",
         "faults": {
             "payment-service": {"error_rate": 0.3, "latency_multiplier": 8, "error_msg": "ConnectionTimeout: payment-db:3306 after 5000ms"},
+            "payment-db": {"latency_multiplier": 10},
         },
     },
     "cascade": {
         "description": "级联故障：payment-db → payment → order",
         "faults": {
             "payment-service": {"error_rate": 0.6, "latency_multiplier": 10, "error_msg": "ConnectionTimeout: payment-db:3306"},
+            "payment-db": {"latency_multiplier": 15},
             "order-service": {"error_rate": 0.25, "latency_multiplier": 3, "error_msg": "PaymentServiceException: payment failed after 3 retries"},
         },
     },
@@ -229,8 +264,16 @@ SCENARIOS = {
     },
 }
 
+# DB/中间件的基础延迟
+DB_BASE_LATENCY = {
+    "payment-db": {"INSERT": 5, "SELECT": 3, "UPDATE": 4, "default": 3},
+    "order-db":   {"INSERT": 5, "SELECT": 3, "UPDATE": 4, "default": 3},
+    "user-cache":    {"GET": 1, "SET": 1, "SETEX": 1, "default": 1},
+    "session-cache": {"GET": 1, "SET": 1, "SETEX": 1, "default": 1},
+}
+
 # ============================================================
-# 异常时默认健康度（模拟数据）
+# 健康度覆盖
 # ============================================================
 
 HEALTH_OVERRIDES = {

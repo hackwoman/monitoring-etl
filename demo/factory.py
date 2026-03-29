@@ -2,16 +2,16 @@
 """
 监控 ETL 平台 - Demo 数据工厂
 
-统一入口，一个命令搞定所有 demo 数据。
+统一入口：CMDB 实体 + 日志 + Trace Span 从一份拓扑定义生成。
 
 用法:
-  python factory.py init          # 创建 CMDB 实体和关系
-  python factory.py run           # 启动日志模拟器
-  python factory.py run --rps 5 --scenario slow_db
-  python factory.py reset         # 清空 CMDB + 重建
-  python factory.py status        # 查看当前数据状态
-
-数据定义在 demo/topology.py，CMDB 和日志模拟共用一份。
+  python factory.py init              # 创建 CMDB 实体和关系
+  python factory.py run               # 启动日志模拟器
+  python factory.py trace             # 产生 trace span 数据写入 ClickHouse
+  python factory.py trace --count 200 # 产生 200 条 trace
+  python factory.py clear             # 清空 CMDB 数据
+  python factory.py reset             # 清空 + 重建
+  python factory.py status            # 查看当前数据状态
 """
 
 import json
@@ -25,14 +25,14 @@ import requests
 from datetime import datetime, timezone
 from pathlib import Path
 
-# 添加项目根目录到 path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from topology import (
     BUSINESSES, HOSTS, SERVICES, MIDDLEWARES, NETWORK_DEVICES,
-    RELATIONS, CALL_CHAINS, SCENARIOS, HEALTH_OVERRIDES,
+    RELATIONS, CALL_CHAINS, SCENARIOS, HEALTH_OVERRIDES, DB_BASE_LATENCY,
 )
 
 CMDB_API = os.getenv("CMDB_API_URL", "http://localhost:8001/api/v1/cmdb")
+CLICKHOUSE_URL = os.getenv("CLICKHOUSE_URL", "http://localhost:8123")
 LOG_DIR = os.getenv("LOG_DIR", "/var/log/app")
 
 # ============================================================
@@ -42,7 +42,6 @@ LOG_DIR = os.getenv("LOG_DIR", "/var/log/app")
 def cmdb_post(path, data):
     r = requests.post(f"{CMDB_API}{path}", json=data, timeout=10)
     if r.status_code == 409:
-        # 冲突：实体已存在，尝试查询返回
         qname = data.get("qualified_name") or f"{data['type_name']}:{data['name']}"
         existing = cmdb_get(f"/entities?search={data['name']}&type_name={data['type_name']}")
         if existing and existing.get("items"):
@@ -58,117 +57,93 @@ def cmdb_get(path):
     return r.json() if r.ok else None
 
 
+# ============================================================
+# CMDB 初始化
+# ============================================================
+
 def clear_cmdb():
-    """清空所有 CMDB 数据。"""
     print("🗑️  清空 CMDB 数据...")
-    entities = cmdb_get("/entities?limit=500&status=active")
+    entities = cmdb_get("/entities?limit=500")
     if entities:
         for e in entities.get("items", []):
             r = requests.delete(f"{CMDB_API}/entities/{e['guid']}", timeout=10)
             status = "✅" if r.ok else "⚠️"
             print(f"  {status} 删除 {e['name']} ({e['type_name']})")
-    print(f"  完成")
+    print("  完成")
 
 
 def init_cmdb():
-    """从 topology.py 创建所有 CMDB 实体和关系。"""
     print("=" * 50)
     print("  🏗️  CMDB 初始化")
     print("=" * 50)
 
-    # 1. 业务实体
     print("\n🏢 业务实体...")
     biz_guids = {}
     for name, attrs in BUSINESSES.items():
         labels = attrs.pop("labels", {})
         result = cmdb_post("/entities", {
-            "type_name": "Business",
-            "name": name,
-            "attributes": attrs,
-            "labels": labels,
-            "biz_service": name,
-            "source": "factory",
+            "type_name": "Business", "name": name,
+            "attributes": attrs, "labels": labels,
+            "biz_service": name, "source": "factory",
         })
         if result:
             biz_guids[name] = result["guid"]
             print(f"  ✅ {name}")
 
-    # 2. 主机
     print("\n🖥️  主机...")
     host_guids = {}
     for name, attrs in HOSTS.items():
         labels = attrs.pop("labels", {})
-        # 查找该主机上的业务
         biz = None
         for svc in SERVICES.values():
-            if svc["host"] == name:
-                biz = svc["business"]
-                break
+            if svc["host"] == name: biz = svc["business"]; break
         for mw in MIDDLEWARES.values():
-            if mw["host"] == name:
-                biz = mw["business"]
-                break
-
+            if mw["host"] == name: biz = mw["business"]; break
         result = cmdb_post("/entities", {
-            "type_name": "Host",
-            "name": name,
-            "attributes": attrs,
-            "labels": labels,
-            "biz_service": biz,
-            "source": "factory",
+            "type_name": "Host", "name": name,
+            "attributes": attrs, "labels": labels,
+            "biz_service": biz, "source": "factory",
         })
         if result:
             host_guids[name] = result["guid"]
             print(f"  ✅ {name} ({attrs['ip']})")
 
-    # 3. 服务
     print("\n⚙️  服务...")
     svc_guids = {}
     for name, conf in SERVICES.items():
         result = cmdb_post("/entities", {
-            "type_name": "Service",
-            "name": name,
-            "attributes": conf["attrs"],
-            "labels": conf["labels"],
-            "biz_service": conf["business"],
-            "source": "factory",
+            "type_name": "Service", "name": name,
+            "attributes": conf["attrs"], "labels": conf["labels"],
+            "biz_service": conf["business"], "source": "factory",
         })
         if result:
             svc_guids[name] = result["guid"]
-            print(f"  ✅ {name} (host={conf['host']}, biz={conf['business']})")
+            print(f"  ✅ {name}")
 
-    # 4. 数据库/缓存
     print("\n🗄️  数据库/缓存...")
     mw_guids = {}
     for name, conf in MIDDLEWARES.items():
         result = cmdb_post("/entities", {
-            "type_name": conf["type"],
-            "name": name,
-            "attributes": conf["attrs"],
-            "labels": conf["labels"],
-            "biz_service": conf["business"],
-            "source": "factory",
+            "type_name": conf["type"], "name": name,
+            "attributes": conf["attrs"], "labels": conf["labels"],
+            "biz_service": conf["business"], "source": "factory",
         })
         if result:
             mw_guids[name] = result["guid"]
-            print(f"  ✅ {name} ({conf['type']}, host={conf['host']})")
+            print(f"  ✅ {name} ({conf['type']})")
 
-    # 5. 网络设备
     print("\n🌐 网络设备...")
     net_guids = {}
     for name, conf in NETWORK_DEVICES.items():
         result = cmdb_post("/entities", {
-            "type_name": "NetworkDevice",
-            "name": name,
-            "attributes": conf["attrs"],
-            "labels": conf["labels"],
+            "type_name": "NetworkDevice", "name": name,
+            "attributes": conf["attrs"], "labels": conf["labels"],
             "source": "factory",
         })
         if result:
             net_guids[name] = result["guid"]
             print(f"  ✅ {name}")
 
-    # 6. 关系
     print("\n🔗 关系...")
     all_guids = {**biz_guids, **svc_guids, **mw_guids, **host_guids, **net_guids}
     pools = {"businesses": biz_guids, "services": svc_guids, "middlewares": mw_guids}
@@ -179,41 +154,26 @@ def init_cmdb():
         tgt_guid = pools.get(tgt_pool, {}).get(tgt_key) or all_guids.get(tgt_key)
         if src_guid and tgt_guid:
             r = cmdb_post(f"/entities/{src_guid}/relations", {
-                "type_name": rel_type,
-                "end2_guid": tgt_guid,
-                "source": "factory",
+                "type_name": rel_type, "end2_guid": tgt_guid, "source": "factory",
             })
-            status = "✅" if r else "⚠️"
-            print(f"  {status} {src_key} --{rel_type}--> {tgt_key}")
-            rel_count += 1
+            if r: rel_count += 1
 
-    # 服务/中间件 → 主机关系（隐含定义）
-    print("\n  --- 部署关系 ---")
+    # runs_on 关系
     for svc_name, conf in SERVICES.items():
-        host_guid = host_guids.get(conf["host"])
-        svc_guid = svc_guids.get(svc_name)
-        if host_guid and svc_guid:
-            r = cmdb_post(f"/entities/{svc_guid}/relations", {
-                "type_name": "runs_on",
-                "end2_guid": host_guid,
-                "source": "factory",
-            })
-            print(f"  {'✅' if r else '⚠️'} {svc_name} --runs_on--> {conf['host']}")
-            rel_count += 1
-
+        h = host_guids.get(conf["host"])
+        s = svc_guids.get(svc_name)
+        if h and s:
+            r = cmdb_post(f"/entities/{s}/relations", {"type_name": "runs_on", "end2_guid": h, "source": "factory"})
+            if r: rel_count += 1
     for mw_name, conf in MIDDLEWARES.items():
-        host_guid = host_guids.get(conf["host"])
-        mw_guid = mw_guids.get(mw_name)
-        if host_guid and mw_guid:
-            r = cmdb_post(f"/entities/{mw_guid}/relations", {
-                "type_name": "runs_on",
-                "end2_guid": host_guid,
-                "source": "factory",
-            })
-            print(f"  {'✅' if r else '⚠️'} {mw_name} --runs_on--> {conf['host']}")
-            rel_count += 1
+        h = host_guids.get(conf["host"])
+        m = mw_guids.get(mw_name)
+        if h and m:
+            r = cmdb_post(f"/entities/{m}/relations", {"type_name": "runs_on", "end2_guid": h, "source": "factory"})
+            if r: rel_count += 1
 
-    # 7. 健康度覆盖（模拟异常）
+    print(f"  ✅ {rel_count} 条关系")
+
     print("\n💚 健康度设置...")
     all_entity_guids = {**svc_guids, **mw_guids, **host_guids}
     for name, health in HEALTH_OVERRIDES.items():
@@ -221,181 +181,384 @@ def init_cmdb():
         if guid:
             cmdb_put(f"/entities/{guid}", health)
             print(f"  🔴 {name}: health={health['health_score']} risk={health['risk_score']}")
-
-    # 设置正常实体的健康度
     for name, guid in all_entity_guids.items():
         if name not in HEALTH_OVERRIDES:
             cmdb_put(f"/entities/{guid}", {"health_score": random.randint(88, 100), "health_level": "healthy"})
-    print(f"  ✅ 其余实体设为 healthy")
+    print("  ✅ 其余实体 healthy")
 
     print(f"\n{'=' * 50}")
     print(f"  ✅ CMDB 初始化完成")
-    print(f"     业务: {len(biz_guids)} | 主机: {len(host_guids)} | 服务: {len(svc_guids)}")
-    print(f"     中间件: {len(mw_guids)} | 网络设备: {len(net_guids)} | 关系: {rel_count}")
+    print(f"     业务:{len(biz_guids)} 主机:{len(host_guids)} 服务:{len(svc_guids)} 中间件:{len(mw_guids)} 关系:{rel_count}")
     print(f"{'=' * 50}")
+
+
+# ============================================================
+# Trace Span 模拟器
+# ============================================================
+
+def _gen_trace_spans(chain_name, scenario="normal"):
+    """生成一条完整调用链的所有 span。"""
+    chain = CALL_CHAINS[chain_name]
+    fault_config = SCENARIOS[scenario]["faults"]
+    trace_id = uuid.uuid4().hex
+    now_us = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+    spans = []
+
+    def _build_spans(span_defs, parent_span_id, start_offset_us):
+        local_offset = start_offset_us
+        for service, endpoint, kind, children in span_defs:
+            svc_conf = SERVICES.get(service, {})
+            mw_conf = MIDDLEWARES.get(service, {})
+            fault = fault_config.get(service)
+
+            # 基础延迟
+            if service in DB_BASE_LATENCY:
+                op = endpoint.split()[0] if endpoint else "default"
+                base_lat = DB_BASE_LATENCY[service].get(op, DB_BASE_LATENCY[service].get("default", 3))
+            else:
+                ep = next((e for e in svc_conf.get("endpoints", []) if f"{e['method']} {e['path']}" == endpoint), None)
+                base_lat = ep["base_latency"] if ep else 20
+
+            # 故障影响
+            if fault:
+                latency_us = int(base_lat * fault.get("latency_multiplier", 1) * random.uniform(0.8, 1.2) * 1000)
+                is_error = random.random() < fault.get("error_rate", 0)
+            else:
+                latency_us = int(base_lat * random.uniform(0.7, 1.3) * 1000)
+                is_error = False
+
+            span_id = uuid.uuid4().hex[:16]
+            start_us = now_us + local_offset
+            end_us = start_us + latency_us
+
+            parts = endpoint.split(" ", 1)
+            method = parts[0] if len(parts) > 1 else ""
+            url = parts[1] if len(parts) > 1 else endpoint
+
+            host_name = svc_conf.get("host", mw_conf.get("host", ""))
+            peer_service = ""
+
+            # DB span
+            db_system = ""
+            db_op = ""
+            if service in MIDDLEWARES:
+                db_system = MIDDLEWARES[service]["attrs"].get("db_type", "").lower()
+                db_op = method if method else "query"
+
+            span = {
+                "trace_id": trace_id,
+                "span_id": span_id,
+                "parent_span_id": parent_span_id,
+                "span_name": endpoint,
+                "start_time_us": start_us,
+                "end_time_us": end_us,
+                "duration_us": latency_us,
+                "service_name": service,
+                "host_name": host_name,
+                "endpoint": endpoint,
+                "peer_service": peer_service,
+                "span_kind": kind,
+                "status_code": "error" if is_error else "ok",
+                "status_message": fault.get("error_msg", "") if is_error and fault else "",
+                "http_method": method,
+                "http_status_code": 500 if is_error else 200,
+                "http_url": url,
+                "db_system": db_system,
+                "db_operation": db_op,
+                "attributes": {"trace_id": trace_id},
+                "labels": {"env": "prod"},
+            }
+            spans.append(span)
+
+            # 递归子 span
+            child_end = local_offset + latency_us
+            if children:
+                child_spans, child_end = _build_spans(children, span_id, local_offset)
+                spans.extend(child_spans)
+                # 父 span 的 end_time 覆盖所有子 span
+                span["end_time_us"] = max(end_us, child_end)
+                span["duration_us"] = span["end_time_us"] - start_us
+
+            local_offset = child_end
+
+        return spans, local_offset
+
+    root_spans = chain["spans"]
+    all_spans, _ = _build_spans(root_spans, "", 0)
+    return trace_id, all_spans
+
+
+def write_traces_to_clickhouse(count=100, scenario="normal"):
+    """批量生成 trace span 并写入 ClickHouse。"""
+    print(f"\n🔗 生成 Trace Span 数据")
+    print(f"   数量: {count} | 场景: {scenario}")
+
+    chain_names = list(CALL_CHAINS.keys())
+    total_spans = 0
+    batch = []
+
+    for i in range(count):
+        chain_name = random.choice(chain_names)
+        trace_id, spans = _gen_trace_spans(chain_name, scenario)
+        batch.extend(spans)
+        total_spans += len(spans)
+
+        # 每 50 条 trace 批量写入
+        if len(batch) >= 200:
+            _flush_spans(batch)
+            batch = []
+
+    if batch:
+        _flush_spans(batch)
+
+    print(f"   ✅ 完成: {count} 条 trace, {total_spans} 个 span")
+
+
+def _flush_spans(spans):
+    """批量写入 ClickHouse traces.spans 表。"""
+    if not spans:
+        return
+
+    columns = [
+        "trace_id", "span_id", "parent_span_id", "span_name",
+        "start_time_us", "end_time_us", "duration_us",
+        "service_name", "host_name", "endpoint",
+        "peer_service", "span_kind",
+        "status_code", "status_message",
+        "http_method", "http_status_code", "http_url",
+        "db_system", "db_operation",
+        "attributes", "labels",
+    ]
+
+    lines = []
+    for s in spans:
+        row = []
+        for col in columns:
+            v = s.get(col, "")
+            if isinstance(v, dict):
+                row.append(json.dumps(v, ensure_ascii=False))
+            elif isinstance(v, str):
+                row.append(v.replace("'", "\\'"))
+            else:
+                row.append(str(v))
+        lines.append("(" + ",".join(f"'{v}'" for v in row) + ")")
+
+    sql = f"INSERT INTO traces.spans ({','.join(columns)}) VALUES {','.join(lines)}"
+    try:
+        r = requests.post(CLICKHOUSE_URL, data=sql, timeout=30)
+        if r.status_code == 200:
+            pass  # 成功
+        else:
+            print(f"   ⚠️ ClickHouse 写入失败: {r.status_code} {r.text[:200]}")
+    except Exception as e:
+        print(f"   ⚠️ ClickHouse 异常: {e}")
+
+
+# ============================================================
+# 链路查询 API（直接查 ClickHouse）
+# ============================================================
+
+def query_trace(trace_id):
+    """按 trace_id 查询完整调用链。"""
+    sql = f"SELECT * FROM traces.spans WHERE trace_id = '{trace_id}' ORDER BY start_time_us FORMAT JSON"
+    r = requests.post(CLICKHOUSE_URL, data=sql, timeout=10)
+    if r.ok:
+        return r.json()
+    return None
+
+
+def query_slowest_traces(limit=10):
+    """查询最慢的 trace。"""
+    sql = f"""
+    SELECT trace_id, service_name, span_name, duration_us, http_status_code
+    FROM traces.spans
+    WHERE parent_span_id = ''
+    ORDER BY duration_us DESC
+    LIMIT {limit}
+    FORMAT JSON
+    """
+    r = requests.post(CLICKHOUSE_URL, data=sql, timeout=10)
+    if r.ok:
+        return r.json()
+    return None
+
+
+def query_service_topology():
+    """从 trace 数据中提取服务调用拓扑（自动发现关系）。"""
+    sql = """
+    SELECT
+        p.service_name as caller,
+        s.service_name as callee,
+        count() as call_count,
+        round(avg(s.duration_us) / 1000, 2) as avg_latency_ms,
+        round(quantile(0.99)(s.duration_us) / 1000, 2) as p99_latency_ms,
+        round(countIf(s.status_code = 'error') * 100.0 / count(), 2) as error_rate
+    FROM traces.spans p
+    INNER JOIN traces.spans s ON p.trace_id = s.trace_id AND s.parent_span_id = p.span_id
+    GROUP BY caller, callee
+    ORDER BY call_count DESC
+    FORMAT JSON
+    """
+    r = requests.post(CLICKHOUSE_URL, data=sql, timeout=10)
+    if r.ok:
+        return r.json()
+    return None
+
+
+def show_trace(trace_id):
+    """格式化展示一条 trace 的调用链。"""
+    data = query_trace(trace_id)
+    if not data or not data.get("data"):
+        print(f"  ❌ trace_id={trace_id} 未找到")
+        return
+
+    spans = data["data"]
+    # 建立 span 索引
+    span_map = {s["span_id"]: s for s in spans}
+    roots = [s for s in spans if not s.get("parent_span_id")]
+
+    print(f"\n{'=' * 60}")
+    print(f"  🔍 Trace: {trace_id[:16]}...")
+    print(f"  总 Span 数: {len(spans)}")
+    print(f"{'=' * 60}")
+
+    def _print_span(span, depth=0):
+        indent = "  " + "  │ " * depth
+        prefix = "  ├─ " if depth > 0 else ""
+        dur_ms = span["duration_us"] / 1000
+        status = "❌" if span["status_code"] == "error" else "✅"
+        db_tag = f" [{span['db_system']}]" if span.get("db_system") else ""
+
+        print(f"{indent}{prefix}{status} {span['service_name']}: {span['span_name']}{db_tag} ({dur_ms:.1f}ms)")
+
+        if span.get("status_message"):
+            print(f"{indent}  │   ⚠️ {span['status_message']}")
+
+        # 找子 span
+        children = [s for s in spans if s.get("parent_span_id") == span["span_id"]]
+        children.sort(key=lambda x: x["start_time_us"])
+        for child in children:
+            _print_span(child, depth + 1)
+
+    for root in roots:
+        _print_span(root)
+
+    # 总耗时
+    total_dur = max(s["duration_us"] for s in spans) if spans else 0
+    has_error = any(s["status_code"] == "error" for s in spans)
+    print(f"\n  📊 总耗时: {total_dur / 1000:.1f}ms {'🔴 含错误' if has_error else '🟢 正常'}")
+
+
+def show_topology():
+    """展示从 trace 数据自动发现的服务拓扑。"""
+    data = query_service_topology()
+    if not data or not data.get("data"):
+        print("  ⚠️ 无 trace 数据，请先运行: python factory.py trace")
+        return
+
+    print(f"\n{'=' * 60}")
+    print("  🌐 服务调用拓扑（从 Trace 数据自动发现）")
+    print(f"{'=' * 60}")
+    print(f"  {'调用方':<25} → {'被调方':<25} {'调用数':>6} {'平均延迟':>10} {'P99':>10} {'错误率':>8}")
+    print(f"  {'-' * 95}")
+
+    for row in data["data"]:
+        err = f"{row['error_rate']}%"
+        print(f"  {row['caller']:<25} → {row['callee']:<25} {row['call_count']:>6} {row['avg_latency_ms']:>8}ms {row['p99_latency_ms']:>8}ms {err:>8}")
 
 
 # ============================================================
 # 日志模拟器（引用共享拓扑）
 # ============================================================
 
-NORMAL_MESSAGES = {
-    "gateway": [
-        "Request received: {method} {path} from {client_ip}",
-        "Upstream responded: {status_code} in {latency}ms",
-        "Request forwarded to {target_service}",
-    ],
-    "order-service": [
-        "Processing order for user_{user_id}",
-        "Order created: order_{order_id}, amount={amount}",
-        "Order queried: order_{order_id}",
-        "Calling payment-service for order_{order_id}",
-    ],
-    "payment-service": [
-        "Processing payment for order_{order_id}",
-        "Payment recorded: pay_{pay_id}, amount={amount}",
-        "Payment status queried: pay_{pay_id} = completed",
-    ],
-    "inventory-service": [
-        "Stock queried: product_{product_id} = {stock} units",
-        "Stock deducted: product_{product_id}, -1, remaining={stock}",
-        "Stock restocked: product_{product_id}, +{qty}",
-    ],
-    "user-service": [
-        "User registered: user_{user_id}",
-        "Profile queried: user_{user_id}",
-        "Session created for user_{user_id}",
-    ],
+LOG_MESSAGES = {
+    "gateway": ["Request received: {method} {path} from {ip}", "Upstream responded: {status} in {lat}ms", "Forwarded to {svc}"],
+    "order-service": ["Processing order for user_{uid}", "Order created: order_{oid}", "Calling payment-service"],
+    "payment-service": ["Processing payment for order_{oid}", "Payment recorded: pay_{pid}", "Calling alipay-gateway"],
+    "inventory-service": ["Stock queried: product_{pid} = {stock}", "Stock deducted: product_{pid}"],
+    "user-service": ["User registered: user_{uid}", "Profile queried: user_{uid}", "Session created for user_{uid}"],
 }
 
-def random_ip():
-    return f"10.{random.randint(0,255)}.{random.randint(1,254)}.{random.randint(1,254)}"
-
-def pick_weighted(items):
-    weights = [i["weight"] for i in items]
-    return random.choices(items, weights=weights, k=1)[0]
-
-
 class LogWriter:
-    def __init__(self, log_dir: str):
+    def __init__(self, log_dir):
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.handles = {}
-
-    def get_handle(self, service: str):
-        if service not in self.handles:
-            log_file = self.log_dir / f"{service}.log"
-            self.handles[service] = open(log_file, "a")
-        return self.handles[service]
-
-    def write(self, service: str, entry: dict):
-        handle = self.get_handle(service)
-        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        handle.flush()
-
+    def get(self, svc):
+        if svc not in self.handles:
+            self.handles[svc] = open(self.log_dir / f"{svc}.log", "a")
+        return self.handles[svc]
+    def write(self, svc, entry):
+        self.get(svc).write(json.dumps(entry, ensure_ascii=False) + "\n")
+        self.get(svc).flush()
     def close(self):
-        for h in self.handles.values():
-            h.close()
-
+        for h in self.handles.values(): h.close()
 
 def run_simulator(rps=1.0, scenario="normal", log_dir=LOG_DIR, switch_after=0):
-    """启动日志模拟器。"""
     print("=" * 50)
-    print("  🚀 日志模拟器启动")
+    print("  🚀 日志模拟器")
     print("=" * 50)
-    print(f"  场景: {scenario} - {SCENARIOS[scenario]['description']}")
-    print(f"  速率: {rps} req/s")
-    print(f"  日志: {log_dir}")
-    print(f"  服务: {', '.join(SERVICES.keys())}")
-    print(f"  Ctrl+C 停止")
-    print("=" * 50)
-
     writer = LogWriter(log_dir)
-    current_scenario = SCENARIOS[scenario]
-    scenario_name = scenario
-    request_count = 0
-    error_count = 0
-    scenario_list = list(SCENARIOS.keys())
-    scenario_index = scenario_list.index(scenario)
-    last_switch = time.time()
+    current = SCENARIOS[scenario]
+    sc_name = scenario
+    req_count = err_count = 0
+    sc_list = list(SCENARIOS.keys())
+    sc_idx = sc_list.index(scenario)
+    last_sw = time.time()
 
     try:
         while True:
-            # 自动切换场景
-            if switch_after > 0 and time.time() - last_switch > switch_after:
-                scenario_index = (scenario_index + 1) % len(scenario_list)
-                scenario_name = scenario_list[scenario_index]
-                current_scenario = SCENARIOS[scenario_name]
-                last_switch = time.time()
-                print(f"  🎬 场景切换: {scenario_name} - {current_scenario['description']}")
+            if switch_after > 0 and time.time() - last_sw > switch_after:
+                sc_idx = (sc_idx + 1) % len(sc_list)
+                sc_name = sc_list[sc_idx]
+                current = SCENARIOS[sc_name]
+                last_sw = time.time()
+                print(f"  🎬 场景: {sc_name} - {current['description']}")
 
-            # 模拟一个请求流
             chain_name = random.choice(list(CALL_CHAINS.keys()))
-            chain = CALL_CHAINS[chain_name]
             trace_id = uuid.uuid4().hex
-            user_id = f"user_{random.randint(10000, 99999)}"
-            order_id = f"ord_{random.randint(100000, 999999)}"
-            client_ip = random_ip()
+            uid = f"user_{random.randint(10000, 99999)}"
+            oid = f"ord_{random.randint(100000, 999999)}"
 
-            for service in chain:
-                if service not in SERVICES:
-                    continue
+            # 递归遍历 span 树产生日志
+            def _emit_spans(span_defs):
+                for svc, endpoint, kind, children in span_defs:
+                    if svc not in SERVICES:
+                        if children: _emit_spans(children)
+                        continue
+                    conf = SERVICES[svc]
+                    fault = current["faults"].get(svc)
+                    ep = next((e for e in conf["endpoints"] if f"{e['method']} {e['path']}" == endpoint), conf["endpoints"][0])
+                    base = ep["base_latency"]
+                    lat = int(base * (fault["latency_multiplier"] if fault else 1) * random.uniform(0.8, 1.3))
+                    is_err = fault and random.random() < fault["error_rate"]
+                    status = 500 if is_err else 200
+                    level = "error" if is_err else ("warn" if lat > base * 3 else "info")
+                    msg = fault["error_msg"] if is_err and fault else random.choice(LOG_MESSAGES.get(svc, ["Request processed"])).format(
+                        method=ep["method"], path=ep["path"], ip=f"10.0.{random.randint(0,255)}.{random.randint(1,254)}",
+                        status=status, lat=lat, svc=random.choice(list(SERVICES.keys())),
+                        uid=uid, oid=oid, pid=f"pay_{random.randint(100000,999999)}",
+                        product_id=f"prod_{random.randint(1000,9999)}", stock=random.randint(10, 500))
+                    writer.write(svc, {
+                        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                        "level": level, "service_name": svc, "host_name": conf["host"],
+                        "message": msg, "trace_id": trace_id, "span_id": uuid.uuid4().hex[:16],
+                        "endpoint": endpoint, "http_status": status, "labels": conf["labels"],
+                    })
+                    if is_err: nonlocal_err()
+                    if children: _emit_spans(children)
 
-                config = SERVICES[service]
-                endpoint = pick_weighted(config["endpoints"])
-                fault = current_scenario["faults"].get(service)
+            def nonlocal_err():
+                nonlocal err_count
+                err_count += 1
 
-                base_latency = endpoint["base_latency"]
-                if fault:
-                    latency = int(base_latency * fault["latency_multiplier"] * random.uniform(0.8, 1.2))
-                else:
-                    latency = int(base_latency * random.uniform(0.7, 1.3))
-
-                is_error = fault and random.random() < fault["error_rate"]
-                status_code = 500 if is_error else 200
-                level = "error" if is_error else ("warn" if latency > base_latency * 3 else "info")
-
-                if is_error and fault:
-                    message = fault["error_msg"]
-                else:
-                    templates = NORMAL_MESSAGES.get(service, ["Request processed"])
-                    template = random.choice(templates)
-                    message = template.format(
-                        method=endpoint["method"], path=endpoint["path"],
-                        client_ip=client_ip, user_id=user_id, order_id=order_id,
-                        amount=round(random.uniform(9.9, 999.9), 2),
-                        pay_id=f"pay_{random.randint(100000, 999999)}",
-                        product_id=f"prod_{random.randint(1000, 9999)}",
-                        stock=random.randint(10, 500), qty=random.randint(10, 100),
-                        target_service=random.choice(list(SERVICES.keys())),
-                        status_code=status_code, latency=latency,
-                    )
-
-                entry = {
-                    "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-                    "level": level,
-                    "service_name": service,
-                    "host_name": config["host"],
-                    "message": message,
-                    "trace_id": trace_id,
-                    "span_id": uuid.uuid4().hex[:16],
-                    "endpoint": f"{endpoint['method']} {endpoint['path']}",
-                    "http_status": status_code,
-                    "labels": config["labels"],
-                }
-
-                writer.write(service, entry)
-                if is_error:
-                    error_count += 1
-
-            request_count += 1
-            if request_count % 100 == 0:
-                print(f"  📊 请求: {request_count} | 错误: {error_count} | 场景: {scenario_name}")
-
+            _emit_spans(CALL_CHAINS[chain_name]["spans"])
+            req_count += 1
+            if req_count % 100 == 0:
+                print(f"  📊 请求: {req_count} | 错误: {err_count} | 场景: {sc_name}")
             time.sleep(max(0.01, 1.0 / rps + random.uniform(-0.1, 0.1) / rps))
-
     except KeyboardInterrupt:
-        print(f"\n  ✅ 停止。总请求: {request_count}, 错误: {error_count}")
+        print(f"\n  ✅ 停止。总请求: {req_count}, 错误: {err_count}")
     finally:
         writer.close()
 
@@ -405,63 +568,72 @@ def run_simulator(rps=1.0, scenario="normal", log_dir=LOG_DIR, switch_after=0):
 # ============================================================
 
 def show_status():
-    """查看当前数据状态。"""
-    overview = cmdb_get("/entities") if True else None
     types = cmdb_get("/types")
     if types:
         print("📦 类型定义:")
         for t in types.get("items", []):
-            defn = t.get("definition", {})
-            metrics = defn.get("metrics", [])
+            metrics = (t.get("definition") or {}).get("metrics", [])
             print(f"  {t['type_name']:20s} ({t['category']}) - {len(metrics)} 指标")
 
-    ov = requests.get(f"{CMDB_API.replace('/cmdb', '')}/overview").json()
-    print(f"\n📊 总览:")
-    print(f"  实体总数: {ov.get('total_entities', 0)}")
-    print(f"  资源分布: {ov.get('resource_size', {})}")
-    print(f"  健康分布: {ov.get('health_distribution', {})}")
-    if ov.get('anomaly_entities'):
-        print(f"  异常实体:")
-        for e in ov['anomaly_entities']:
-            print(f"    🔴 {e['name']} ({e['type_name']}): health={e['health_score']} risk={e['risk_score']}")
+    r = requests.get(f"{CMDB_API.replace('/cmdb', '')}/overview", timeout=10)
+    if r.ok:
+        ov = r.json()
+        print(f"\n📊 总览:")
+        print(f"  实体总数: {ov.get('total_entities', 0)}")
+        print(f"  资源分布: {ov.get('resource_size', {})}")
+        print(f"  健康分布: {ov.get('health_distribution', {})}")
+
+    # Trace 统计
+    try:
+        r = requests.post(CLICKHOUSE_URL, data="SELECT count() as total, uniq(trace_id) as traces FROM traces.spans FORMAT JSON", timeout=5)
+        if r.ok:
+            d = r.json().get("data", [{}])[0]
+            print(f"\n🔗 Trace 数据:")
+            print(f"  Span 总数: {d.get('total', 0)}")
+            print(f"  Trace 数: {d.get('traces', 0)}")
+    except:
+        pass
 
 
 def main():
     parser = argparse.ArgumentParser(description="Demo 数据工厂")
     sub = parser.add_subparsers(dest="command")
 
-    # init
     sub.add_parser("init", help="创建 CMDB 实体和关系")
+    sub.add_parser("clear", help="清空 CMDB 数据")
+    sub.add_parser("reset", help="清空 CMDB 并重建")
+    sub.add_parser("status", help="查看当前数据状态")
 
-    # run
     run_p = sub.add_parser("run", help="启动日志模拟器")
-    run_p.add_argument("--rps", type=float, default=1.0, help="每秒请求数")
+    run_p.add_argument("--rps", type=float, default=1.0)
     run_p.add_argument("--scenario", default="normal", choices=list(SCENARIOS.keys()))
     run_p.add_argument("--log-dir", default=LOG_DIR)
-    run_p.add_argument("--switch-after", type=int, default=0, help="N秒后自动切场景")
+    run_p.add_argument("--switch-after", type=int, default=0)
 
-    # clear
-    sub.add_parser("clear", help="清空 CMDB 数据")
-
-    # reset
-    sub.add_parser("reset", help="清空 CMDB 并重建")
-
-    # status
-    sub.add_parser("status", help="查看当前数据状态")
+    trace_p = sub.add_parser("trace", help="生成 Trace Span 数据")
+    trace_p.add_argument("--count", type=int, default=100, help="trace 数量")
+    trace_p.add_argument("--scenario", default="normal", choices=list(SCENARIOS.keys()))
+    trace_p.add_argument("--show", type=str, default="", help="展示指定 trace_id")
+    trace_p.add_argument("--topology", action="store_true", help="展示从 trace 发现的拓扑")
 
     args = parser.parse_args()
 
-    if args.command == "init":
-        init_cmdb()
-    elif args.command == "clear":
-        clear_cmdb()
-    elif args.command == "reset":
-        clear_cmdb()
-        init_cmdb()
+    if args.command == "init": init_cmdb()
+    elif args.command == "clear": clear_cmdb()
+    elif args.command == "reset": clear_cmdb(); init_cmdb()
+    elif args.command == "status": show_status()
     elif args.command == "run":
         run_simulator(rps=args.rps, scenario=args.scenario, log_dir=args.log_dir, switch_after=args.switch_after)
-    elif args.command == "status":
-        show_status()
+    elif args.command == "trace":
+        if args.show:
+            show_trace(args.show)
+        elif args.topology:
+            show_topology()
+        else:
+            write_traces_to_clickhouse(count=args.count, scenario=args.scenario)
+            print("\n💡 试试:")
+            print("   python factory.py trace --topology  # 查看调用拓扑")
+            print("   python factory.py status             # 查看总览")
     else:
         parser.print_help()
 
