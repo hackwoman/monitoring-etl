@@ -27,8 +27,7 @@ transforms:
       .cmdb_type = if .service_name != null { "Service" } else { "Host" }
       .cmdb_labels = .labels ?? {}
 
-  # 3. 发送心跳到 CMDB（自动创建实体）
-  #    Vector dedupe 会合并相同 name 的心跳，减少 API 调用
+  # 3. 按实体名分组去重，减少 CMDB API 调用
   heartbeat_dedupe:
     type: reduce
     inputs:
@@ -38,7 +37,7 @@ transforms:
     merge_strategies:
       cmdb_name: discard
       cmdb_type: discard
-      cmdb_labels: merge
+      cmdb_labels: flat_unique
     starts_when: true
     max_events: 1
 
