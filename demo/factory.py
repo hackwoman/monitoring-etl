@@ -41,6 +41,12 @@ LOG_DIR = os.getenv("LOG_DIR", "/var/log/app")
 
 def cmdb_post(path, data):
     r = requests.post(f"{CMDB_API}{path}", json=data, timeout=10)
+    if r.status_code == 409:
+        # 冲突：实体已存在，尝试查询返回
+        qname = data.get("qualified_name") or f"{data['type_name']}:{data['name']}"
+        existing = cmdb_get(f"/entities?search={data['name']}&type_name={data['type_name']}")
+        if existing and existing.get("items"):
+            return existing["items"][0]
     return r.json() if r.ok else None
 
 def cmdb_put(path, data):
@@ -50,6 +56,18 @@ def cmdb_put(path, data):
 def cmdb_get(path):
     r = requests.get(f"{CMDB_API}{path}", timeout=10)
     return r.json() if r.ok else None
+
+
+def clear_cmdb():
+    """清空所有 CMDB 数据。"""
+    print("🗑️  清空 CMDB 数据...")
+    entities = cmdb_get("/entities?limit=500&status=active")
+    if entities:
+        for e in entities.get("items", []):
+            r = requests.delete(f"{CMDB_API}/entities/{e['guid']}", timeout=10)
+            status = "✅" if r.ok else "⚠️"
+            print(f"  {status} 删除 {e['name']} ({e['type_name']})")
+    print(f"  完成")
 
 
 def init_cmdb():
@@ -422,6 +440,9 @@ def main():
     run_p.add_argument("--log-dir", default=LOG_DIR)
     run_p.add_argument("--switch-after", type=int, default=0, help="N秒后自动切场景")
 
+    # clear
+    sub.add_parser("clear", help="清空 CMDB 数据")
+
     # reset
     sub.add_parser("reset", help="清空 CMDB 并重建")
 
@@ -432,11 +453,13 @@ def main():
 
     if args.command == "init":
         init_cmdb()
+    elif args.command == "clear":
+        clear_cmdb()
+    elif args.command == "reset":
+        clear_cmdb()
+        init_cmdb()
     elif args.command == "run":
         run_simulator(rps=args.rps, scenario=args.scenario, log_dir=args.log_dir, switch_after=args.switch_after)
-    elif args.command == "reset":
-        print("⚠️  重置需要在服务器上执行: docker compose down -v && docker compose up -d")
-        print("   然后运行: python factory.py init")
     elif args.command == "status":
         show_status()
     else:
