@@ -32,7 +32,7 @@ from topology import (
 )
 
 CMDB_API = os.getenv("CMDB_API_URL", "http://localhost:8001/api/v1/cmdb")
-CLICKHOUSE_URL = os.getenv("CLICKHOUSE_URL", "http://localhost:8123")
+CLICKHOUSE_URL = os.getenv("CLICKHOUSE_URL", "http://47.93.61.196:8123")
 LOG_DIR = os.getenv("LOG_DIR", "/var/log/app")
 
 # ============================================================
