@@ -303,8 +303,8 @@ def write_traces_to_clickhouse(count=100, scenario="normal"):
         batch.extend(spans)
         total_spans += len(spans)
 
-        # 每 50 条 trace 批量写入
-        if len(batch) >= 200:
+        # 每 20 条 trace 批量写入
+        if len(batch) >= 60:
             _flush_spans(batch)
             batch = []
 
@@ -369,11 +369,13 @@ def _flush_spans(spans):
 
     sql = f"INSERT INTO traces.spans ({','.join(columns)}) VALUES {','.join(lines)}"
     try:
-        r = requests.post(CLICKHOUSE_URL, data=sql, timeout=30)
+        r = requests.post(CLICKHOUSE_URL, data=sql.encode('utf-8'), timeout=30)
         if r.status_code != 200:
-            print(f"   ⚠️ ClickHouse 写入失败: {r.status_code} {r.text[:200]}")
+            print(f"   ⚠️ ClickHouse 写入失败({len(spans)} spans): {r.status_code} {r.text[:200]}")
+        else:
+            pass  # 成功
     except Exception as e:
-        print(f"   ⚠️ ClickHouse 异常: {e}")
+        print(f"   ⚠️ ClickHouse 异常({len(spans)} spans): {e}")
 
 
 # ============================================================
