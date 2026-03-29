@@ -23,17 +23,18 @@ transforms:
     inputs:
       - parse_json
     source: |
-      .cmdb_name = .service_name ?? .host_name ?? "unknown"
-      .cmdb_type = if .service_name != null { "Service" } else { "Host" }
+      svc = string(.service_name) ?? null
+      hst = string(.host_name) ?? null
+      if svc != null {
+        .cmdb_name = svc
+        .cmdb_type = "Service"
+      } else if hst != null {
+        .cmdb_name = hst
+        .cmdb_type = "Host"
+      } else {
+        abort
+      }
       .cmdb_labels = .labels ?? {}
-      # 只保留心跳需要的字段，减少 payload
-      del(.message)
-      del(.trace_id)
-      del(.span_id)
-      del(.endpoint)
-      del(.http_status)
-      del(.level)
-      del(.timestamp)
 
 sinks:
   # 写入 ClickHouse（主数据流）
@@ -50,7 +51,6 @@ sinks:
       max_events: 10000
 
   # CMDB 心跳（自动发现实体）
-  # CMDB heartbeat 接口做了去重：有则更新 last_observed，无则创建
   cmdb_heartbeat:
     type: http
     inputs:
