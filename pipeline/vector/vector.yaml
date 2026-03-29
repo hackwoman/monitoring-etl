@@ -17,22 +17,15 @@ transforms:
       . = parse_json!(.message)
       .source = "file"
 
-  # 2. 提取实体信息，准备 CMDB 心跳
+  # 2. 提取实体信息
   extract_entity:
     type: remap
     inputs:
       - parse_json
     source: |
-      if exists(.service_name) {
-        .cmdb_name = string!(.service_name)
-        .cmdb_type = "Service"
-      } else if exists(.host_name) {
-        .cmdb_name = string!(.host_name)
-        .cmdb_type = "Host"
-      } else {
-        abort
-      }
-      .cmdb_labels = object(.labels) ?? {}
+      .cmdb_name = .service_name ?? .host_name ?? .host ?? "unknown"
+      .cmdb_type = "Service"
+      .cmdb_labels = .labels ?? {}
 
 sinks:
   # 写入 ClickHouse（主数据流）
