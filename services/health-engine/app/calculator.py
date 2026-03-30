@@ -172,16 +172,16 @@ def calculate_risk_score(
     风险 = 健康度差 × 业务权重 × 影响范围
     
     公式：
-    risk = (100 - health_score) × biz_weight × (1 + blast_radius/10) × (1 + propagation_hops/5)
+    risk = (100 - health_score) × biz_weight × (1 + blast_radius/5) × (1 + propagation_hops/3)
     
     最终归一化到 0-100。
     """
     health_penalty = 100 - health_score
-    impact_factor = (1 + blast_radius / 10) * (1 + propagation_hops / 5)
+    impact_factor = (1 + blast_radius / 5) * (1 + propagation_hops / 3)
     raw_risk = health_penalty * biz_weight * impact_factor
 
-    # 归一化到 0-100
-    risk = min(100, int(raw_risk / 5))
+    # 归一化到 0-100（除以 2.5，更敏感）
+    risk = min(100, int(raw_risk / 2.5))
     return risk
 
 
