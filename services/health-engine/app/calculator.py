@@ -27,7 +27,7 @@ def metric_value_to_score(value: float, thresholds: dict) -> int:
     线性插值：warn 到 crit 之间 = 100 → 0 分
     """
     if value is None:
-        return 50  # 无数据给中等分
+        return 65  # 无数据给中等偏上分（不拖累有数据的实体）
 
     warn = thresholds.get("warn")
     crit = thresholds.get("crit")
@@ -87,7 +87,21 @@ def calculate_weighted_avg(
     # 建立指标名 → 阈值的映射
     metric_thresholds = {}
     for m in type_def_definition.get("metrics", []):
-        metric_thresholds[m["name"]] = m.get("thresholds", {})
+        t = m.get("thresholds", {})
+        # 规范化阈值：p99_warn→warn, p99_crit→crit, rate_warn→warn, rate_crit→crit
+        normalized = {}
+        if "warn" in t: normalized["warn"] = t["warn"]
+        if "crit" in t: normalized["crit"] = t["crit"]
+        if "p99_warn" in t: normalized["warn"] = t["p99_warn"]
+        if "p99_crit" in t: normalized["crit"] = t["p99_crit"]
+        if "rate_warn" in t: normalized["warn"] = t["rate_warn"]
+        if "rate_crit" in t: normalized["crit"] = t["rate_crit"]
+        metric_thresholds[m["name"]] = normalized
+        
+        # 也支持子指标名匹配（如 http.server.request.duration.p99 → http.server.request.duration）
+        if "." in m["name"]:
+            base_name = m["name"].rsplit(".", 1)[0]
+            metric_thresholds[base_name] = normalized
 
     detail = {}
     total_weight = 0

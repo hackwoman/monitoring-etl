@@ -178,6 +178,7 @@ def fetch_metrics_from_clickhouse(entities: list) -> dict:
                     key = f"Service:{svc_name}"
                     if key not in result:
                         result[key] = {}
+                    # Trace 数据覆盖日志数据（更准确）
                     result[key]["http.server.request.duration.p99"] = float(row.get("p99_latency", 0))
                     result[key]["http.server.request.error_rate"] = float(row.get("error_rate", 0))
 
