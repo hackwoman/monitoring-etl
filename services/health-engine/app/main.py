@@ -113,7 +113,7 @@ def fetch_metrics_from_clickhouse(entities: list) -> dict:
                     round(quantile(0.99)(duration_ms), 2) as p99_latency_ms
                 FROM logs.log_entries
                 WHERE service_name IN ({names})
-                  AND timestamp > now() - INTERVAL 5 MINUTE
+                  AND timestamp > now() - INTERVAL 60 MINUTE
                 GROUP BY service_name
                 FORMAT JSON
                 """
@@ -140,7 +140,7 @@ def fetch_metrics_from_clickhouse(entities: list) -> dict:
                     countIf(level = 'error') as error_count
                 FROM logs.log_entries
                 WHERE host_name IN ({names})
-                  AND timestamp > now() - INTERVAL 5 MINUTE
+                  AND timestamp > now() - INTERVAL 60 MINUTE
                 GROUP BY host_name
                 FORMAT JSON
                 """
@@ -166,7 +166,7 @@ def fetch_metrics_from_clickhouse(entities: list) -> dict:
                 round(quantile(0.99)(duration_ms), 2) as p99_latency,
                 round(countIf(status_code = 'error') * 100.0 / count(), 2) as error_rate
             FROM traces.spans
-            WHERE start_time > now() - INTERVAL 5 MINUTE
+            WHERE start_time > now() - INTERVAL 60 MINUTE
             GROUP BY service_name
             FORMAT JSON
             """
