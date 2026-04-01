@@ -58,7 +58,7 @@ def query_service_topology_from_trace(window_minutes: int = 60) -> List[Discover
 
     try:
         r = httpx.post(CLICKHOUSE_URL, content=sql.encode("utf-8"), timeout=30)
-        if not r.ok:
+        if not r.is_success:
             logger.error(f"ClickHouse query failed: {r.status_code} {r.text[:200]}")
             return []
 
@@ -107,7 +107,7 @@ def query_endpoint_topology(window_minutes: int = 60) -> List[Dict[str, Any]]:
 
     try:
         r = httpx.post(CLICKHOUSE_URL, content=sql.encode("utf-8"), timeout=30)
-        if r.ok:
+        if r.is_success:
             return r.json().get("data", [])
         return []
     except Exception as e:
@@ -123,7 +123,7 @@ def cmdb_get(path: str) -> Optional[dict]:
     """调用 CMDB API GET。"""
     try:
         r = httpx.get(f"{CMDB_API_URL}{path}", timeout=10)
-        if r.ok:
+        if r.is_success:
             return r.json()
         return None
     except Exception as e:
@@ -135,7 +135,7 @@ def cmdb_post(path: str, data: dict) -> Optional[dict]:
     """调用 CMDB API POST。"""
     try:
         r = httpx.post(f"{CMDB_API_URL}{path}", json=data, timeout=10)
-        if r.ok:
+        if r.is_success:
             return r.json()
         return None
     except Exception as e:
@@ -147,7 +147,7 @@ def cmdb_put(path: str, data: dict) -> bool:
     """调用 CMDB API PUT。"""
     try:
         r = httpx.put(f"{CMDB_API_URL}{path}", json=data, timeout=10)
-        return r.ok
+        return r.is_success
     except Exception as e:
         logger.error(f"CMDB PUT {path} failed: {e}")
         return False

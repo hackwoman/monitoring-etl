@@ -15,11 +15,12 @@ class DiscoveryRequest(BaseModel):
 
 
 class DiscoveryResponse(BaseModel):
-    discovered: int
-    created: int
-    updated: int
-    skipped: int
-    timestamp: str
+    discovered: int = 0
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    stale: int = 0
+    timestamp: str = ""
 
 
 @router.post("/trace", response_model=DiscoveryResponse)
