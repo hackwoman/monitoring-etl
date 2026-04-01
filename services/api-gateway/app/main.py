@@ -41,6 +41,12 @@ async def proxy_logs(request: Request, path: str):
     return await _proxy(request, f"{LOG_API_URL}/api/v1/logs/{path}")
 
 
+@app.api_route("/api/v1/chat", methods=["POST"])
+async def proxy_chat(request: Request):
+    """Proxy to CMDB API chat endpoint."""
+    return await _proxy(request, f"{CMDB_API_URL}/api/v1/chat")
+
+
 async def _proxy(request: Request, target_url: str):
     """Generic proxy handler."""
     async with httpx.AsyncClient(timeout=30) as client:
