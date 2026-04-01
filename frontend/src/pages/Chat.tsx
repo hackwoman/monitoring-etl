@@ -92,7 +92,7 @@ const ChatPage: React.FC = () => {
       return {
         role: 'assistant',
         content: `🚨 发现 ${anomalies.length} 个异常实体：\n${lines.join('\n')}`,
-        entities: anomalies,
+        data: anomalies,
       };
     }
 
@@ -115,7 +115,7 @@ const ChatPage: React.FC = () => {
       return {
         role: 'assistant',
         content: lines.join('\n\n'),
-        entities: items,
+        data: items,
       };
     }
 
@@ -160,7 +160,7 @@ const ChatPage: React.FC = () => {
       return {
         role: 'assistant',
         content: `🏢 业务列表：\n${lines.join('\n')}`,
-        entities: businesses,
+        data: businesses,
       };
     }
 
@@ -176,7 +176,7 @@ const ChatPage: React.FC = () => {
       return {
         role: 'assistant',
         content: `🔍 找到 ${items.length} 个相关实体：\n${lines.join('\n')}`,
-        entities: items,
+        data: items,
       };
     }
 
@@ -243,7 +243,7 @@ const ChatPage: React.FC = () => {
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onPressEnter={handleSend}
+            onPressEnter={() => handleSend()}
             placeholder="输入问题，如：有哪些异常实体"
             disabled={loading}
             style={{ flex: 1 }}
@@ -251,7 +251,7 @@ const ChatPage: React.FC = () => {
           <Button
             type="primary"
             icon={<SendOutlined />}
-            onClick={handleSend}
+            onClick={() => handleSend()}
             loading={loading}
           >
             发送
