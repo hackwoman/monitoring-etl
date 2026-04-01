@@ -1,15 +1,26 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Card, Input, Button, List, Tag, Space, Spin, Empty } from 'antd';
-import { SendOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
+import { Card, Input, Button, List, Tag, Space, Spin, Empty, Tooltip } from 'antd';
+import { SendOutlined, RobotOutlined, UserOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import axios from 'axios';
 
-const API_BASE = '/api/v1/cmdb';
+const API_BASE = '/api/v1';
+const CMDB_API = '/api/v1/cmdb';
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
-  entities?: any[];
+  data?: any;
+  source?: 'backend' | 'frontend';
 }
+
+const SUGGESTIONS = [
+  'payment-service 的健康度',
+  '异常的实体',
+  '最慢的服务',
+  '错误率',
+  '有多少个服务',
+  '帮助',
+];
 
 const ChatPage: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([
@@ -28,8 +39,8 @@ const ChatPage: React.FC = () => {
     }
   }, [messages]);
 
-  const handleSend = async () => {
-    const question = input.trim();
+  const handleSend = async (text?: string) => {
+    const question = (text || input).trim();
     if (!question) return;
 
     setInput('');
@@ -37,27 +48,36 @@ const ChatPage: React.FC = () => {
     setLoading(true);
 
     try {
-      const answer = await processQuestion(question);
-      setMessages((prev) => [...prev, answer]);
-    } catch (err: any) {
+      // 优先调用后端 Chat API
+      const res = await axios.post(`${API_BASE}/chat`, { message: question });
       setMessages((prev) => [...prev, {
         role: 'assistant',
-        content: `抱歉，查询出错了：${err.message || '未知错误'}`,
+        content: res.data.reply || '没有收到回复',
+        data: res.data.data,
+        source: 'backend',
       }]);
+    } catch (err: any) {
+      // 后端不可用时，降级到前端解析
+      try {
+        const answer = await fallbackProcess(question);
+        setMessages((prev) => [...prev, answer]);
+      } catch (fallbackErr: any) {
+        setMessages((prev) => [...prev, {
+          role: 'assistant',
+          content: `抱歉，查询出错了：${err.message || '未知错误'}`,
+        }]);
+      }
     }
     setLoading(false);
   };
 
-  const processQuestion = async (q: string): Promise<Message> => {
+  // 前端降级解析（后端不可用时）
+  const fallbackProcess = async (q: string): Promise<Message> => {
     const lower = q.toLowerCase();
 
     // 异常实体查询
     if (lower.includes('异常') || lower.includes('告警') || lower.includes('问题') || lower.includes('anomal')) {
-      const res = await axios.get(`${API_BASE}/entities`, {
-        params: { health_level: 'warning, critical,down', limit: 20 },
-      });
-      // API 只支持单个 health_level，手动过滤
-      const resAll = await axios.get(`${API_BASE}/entities`, { params: { limit: 100 } });
+      const resAll = await axios.get(`${CMDB_API}/entities`, { params: { limit: 100 } });
       const anomalies = (resAll.data.items || []).filter(
         (e: any) => e.health_level && e.health_level !== 'healthy'
       );
@@ -80,7 +100,7 @@ const ChatPage: React.FC = () => {
     const healthMatch = q.match(/(.+?)(?:的|健康度|健康|状态|health)/);
     if (healthMatch) {
       const entityName = healthMatch[1].trim();
-      const res = await axios.get(`${API_BASE}/entities`, {
+      const res = await axios.get(`${CMDB_API}/entities`, {
         params: { search: entityName, limit: 5 },
       });
       const items = res.data.items || [];
@@ -106,7 +126,7 @@ const ChatPage: React.FC = () => {
       const matchedType = typeNames.find(t => lower.includes(t.toLowerCase()));
 
       if (matchedType) {
-        const res = await axios.get(`${API_BASE}/entities`, {
+        const res = await axios.get(`${CMDB_API}/entities`, {
           params: { type_name: matchedType, limit: 1 },
         });
         return {
@@ -116,7 +136,7 @@ const ChatPage: React.FC = () => {
       }
 
       // 总数
-      const res = await axios.get(`${API_BASE}/entities`, { params: { limit: 1 } });
+      const res = await axios.get(`${CMDB_API}/entities`, { params: { limit: 1 } });
       return {
         role: 'assistant',
         content: `📦 平台共有 ${res.data.total || 0} 个实体。`,
@@ -125,7 +145,7 @@ const ChatPage: React.FC = () => {
 
     // 业务查询
     if (lower.includes('业务') || lower.includes('business')) {
-      const res = await axios.get(`${API_BASE}/entities`, {
+      const res = await axios.get(`${CMDB_API}/entities`, {
         params: { type_name: 'Business', limit: 20 },
       });
       const businesses = res.data.items || [];
@@ -145,7 +165,7 @@ const ChatPage: React.FC = () => {
     }
 
     // 默认：搜索实体
-    const res = await axios.get(`${API_BASE}/entities`, {
+    const res = await axios.get(`${CMDB_API}/entities`, {
       params: { search: q, limit: 10 },
     });
     const items = res.data.items || [];
@@ -207,6 +227,15 @@ const ChatPage: React.FC = () => {
               <Spin size="small" /> 思考中...
             </div>
           )}
+        </div>
+
+        {/* 快捷建议 */}
+        <div style={{ padding: '8px 12px', borderTop: '1px solid #f0f0f0', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {SUGGESTIONS.map((s) => (
+            <Button key={s} size="small" type="dashed" onClick={() => handleSend(s)}>
+              {s}
+            </Button>
+          ))}
         </div>
 
         {/* 输入框 */}

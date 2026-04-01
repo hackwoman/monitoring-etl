@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS relationship (
     source          VARCHAR(64) DEFAULT 'manual',
     confidence      FLOAT DEFAULT 1.0,
     is_active       BOOLEAN DEFAULT true,
+    dimension       VARCHAR(16) DEFAULT 'vertical',  -- 'horizontal' 调用链 / 'vertical' 归属树
     first_seen      TIMESTAMPTZ DEFAULT now(),
     last_seen       TIMESTAMPTZ DEFAULT now(),
     created_at      TIMESTAMPTZ DEFAULT now()

@@ -31,7 +31,7 @@ from topology import (
     RELATIONS, CALL_CHAINS, SCENARIOS, HEALTH_OVERRIDES, DB_BASE_LATENCY,
 )
 
-CMDB_API = os.getenv("CMDB_API_URL", "http://localhost:8001/api/v1/cmdb")
+CMDB_API = os.getenv("CMDB_API_URL", "http://8.146.232.9:8001/api/v1/cmdb")
 CLICKHOUSE_URL = os.getenv("CLICKHOUSE_URL", "http://47.93.61.196:8123")
 LOG_DIR = os.getenv("LOG_DIR", "/var/log/app")
 

@@ -42,6 +42,7 @@ class RelationshipCreate(BaseModel):
     attributes: dict = Field(default_factory=dict)
     source: str = "manual"
     confidence: float = 1.0
+    dimension: str = "vertical"
 
 
 # ---- Helper ----
@@ -379,6 +380,7 @@ async def create_relationship(
         attributes=body.attributes,
         source=body.source,
         confidence=body.confidence,
+        dimension=body.dimension,
     )
     session.add(rel)
     await session.commit()
@@ -392,6 +394,7 @@ async def create_relationship(
         "attributes": rel.attributes,
         "source": rel.source,
         "confidence": rel.confidence,
+        "dimension": rel.dimension or "vertical",
         "is_active": rel.is_active,
     }
 
@@ -438,6 +441,7 @@ async def list_relationships(
                 "attributes": r.attributes or {},
                 "source": r.source,
                 "confidence": r.confidence,
+                "dimension": r.dimension or "vertical",
                 "is_active": r.is_active,
             }
             for r in rels

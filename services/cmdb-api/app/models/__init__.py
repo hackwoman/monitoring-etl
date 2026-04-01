@@ -84,6 +84,7 @@ class Relationship(Base):
     attributes = Column(JSONB, default=dict)
     source = Column(String(64), default="manual")
     confidence = Column(Float, default=1.0)
+    dimension = Column(String(16), default="vertical")  # horizontal=调用链, vertical=归属树
     is_active = Column(Boolean, default=True)
     first_seen = Column(DateTime(timezone=True), default=datetime.utcnow)
     last_seen = Column(DateTime(timezone=True), default=datetime.utcnow)
