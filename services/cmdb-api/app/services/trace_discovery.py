@@ -2,7 +2,7 @@
 
 import os
 import json
-import requests
+import httpx
 import logging
 from datetime import datetime, timezone
 from typing import Optional, Dict, List, Any
@@ -57,7 +57,7 @@ def query_service_topology_from_trace(window_minutes: int = 60) -> List[Discover
     """
 
     try:
-        r = requests.post(CLICKHOUSE_URL, data=sql, timeout=30)
+        r = httpx.post(CLICKHOUSE_URL, content=sql.encode("utf-8"), timeout=30)
         if not r.ok:
             logger.error(f"ClickHouse query failed: {r.status_code} {r.text[:200]}")
             return []
@@ -106,7 +106,7 @@ def query_endpoint_topology(window_minutes: int = 60) -> List[Dict[str, Any]]:
     """
 
     try:
-        r = requests.post(CLICKHOUSE_URL, data=sql, timeout=30)
+        r = httpx.post(CLICKHOUSE_URL, content=sql.encode("utf-8"), timeout=30)
         if r.ok:
             return r.json().get("data", [])
         return []
@@ -122,7 +122,7 @@ def query_endpoint_topology(window_minutes: int = 60) -> List[Dict[str, Any]]:
 def cmdb_get(path: str) -> Optional[dict]:
     """调用 CMDB API GET。"""
     try:
-        r = requests.get(f"{CMDB_API_URL}{path}", timeout=10)
+        r = httpx.get(f"{CMDB_API_URL}{path}", timeout=10)
         if r.ok:
             return r.json()
         return None
@@ -134,7 +134,7 @@ def cmdb_get(path: str) -> Optional[dict]:
 def cmdb_post(path: str, data: dict) -> Optional[dict]:
     """调用 CMDB API POST。"""
     try:
-        r = requests.post(f"{CMDB_API_URL}{path}", json=data, timeout=10)
+        r = httpx.post(f"{CMDB_API_URL}{path}", json=data, timeout=10)
         if r.ok:
             return r.json()
         return None
@@ -146,7 +146,7 @@ def cmdb_post(path: str, data: dict) -> Optional[dict]:
 def cmdb_put(path: str, data: dict) -> bool:
     """调用 CMDB API PUT。"""
     try:
-        r = requests.put(f"{CMDB_API_URL}{path}", json=data, timeout=10)
+        r = httpx.put(f"{CMDB_API_URL}{path}", json=data, timeout=10)
         return r.ok
     except Exception as e:
         logger.error(f"CMDB PUT {path} failed: {e}")
