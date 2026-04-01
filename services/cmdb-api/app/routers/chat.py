@@ -6,7 +6,7 @@ import logging
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-import requests
+import httpx
 import os
 
 logger = logging.getLogger(__name__)
@@ -30,9 +30,10 @@ class ChatResponse(BaseModel):
 def cmdb_get(path: str) -> Optional[dict]:
     """调用 CMDB API GET。"""
     try:
-        r = requests.get(f"{CMDB_API}{path}", timeout=10)
-        if r.ok:
-            return r.json()
+        with httpx.Client(timeout=10) as client:
+            r = client.get(f"{CMDB_API}{path}")
+            if r.status_code == 200:
+                return r.json()
         return None
     except:
         return None
@@ -41,9 +42,10 @@ def cmdb_get(path: str) -> Optional[dict]:
 def ch_query(sql: str) -> Optional[list]:
     """查询 ClickHouse。"""
     try:
-        r = requests.post(CLICKHOUSE_URL, data=sql.encode('utf-8'), timeout=15)
-        if r.ok:
-            return r.json().get("data", [])
+        with httpx.Client(timeout=15) as client:
+            r = client.post(CLICKHOUSE_URL, content=sql.encode('utf-8'))
+            if r.status_code == 200:
+                return r.json().get("data", [])
         return None
     except:
         return None
