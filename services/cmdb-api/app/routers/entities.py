@@ -69,6 +69,56 @@ def _entity_to_dict(e: Entity) -> dict:
     }
 
 
+def _validate_attributes(attributes: dict, attr_defs: list) -> list[str]:
+    """
+    校验属性是否符合 type_def.definition.attributes 的元数据定义。
+
+    返回错误列表，空列表表示通过。
+    """
+    errors = []
+    if not attr_defs:
+        return errors
+
+    # 建立 key → 定义 的映射
+    def_map = {d["key"]: d for d in attr_defs if isinstance(d, dict) and "key" in d}
+
+    # 检查必填字段
+    for key, defn in def_map.items():
+        if defn.get("required", False):
+            val = attributes.get(key)
+            if val is None or val == "":
+                errors.append(f"属性 '{defn.get('name', key)}' ({key}) 为必填项")
+
+    # 检查类型和约束
+    for key, val in attributes.items():
+        if val is None:
+            continue
+        defn = def_map.get(key)
+        if not defn:
+            continue  # 未定义的属性，允许（自由扩展）
+
+        expected_type = defn.get("type", "string")
+        if expected_type == "int":
+            try:
+                int_val = int(val)
+                if "min" in defn and int_val < defn["min"]:
+                    errors.append(f"属性 '{key}' 值 {int_val} 小于最小值 {defn['min']}")
+                if "max" in defn and int_val > defn["max"]:
+                    errors.append(f"属性 '{key}' 值 {int_val} 大于最大值 {defn['max']}")
+            except (ValueError, TypeError):
+                errors.append(f"属性 '{key}' 应为整数类型，收到 {type(val).__name__}")
+        elif expected_type == "float":
+            try:
+                float(val)
+            except (ValueError, TypeError):
+                errors.append(f"属性 '{key}' 应为浮点数类型，收到 {type(val).__name__}")
+        elif expected_type == "bool":
+            if not isinstance(val, bool):
+                errors.append(f"属性 '{key}' 应为布尔类型，收到 {type(val).__name__}")
+
+    return errors
+
+
 def _entity_cognition(e: Entity, type_def: EntityTypeDef, relations: list) -> dict:
     """构建实体完整认知（四个维度）。"""
     definition = type_def.definition or {}
@@ -134,6 +184,13 @@ async def create_entity(
     if type_def and type_def.definition:
         expected_metrics = type_def.definition.get("metrics", [])
         expected_relations = type_def.definition.get("relations", [])
+
+        # 属性校验
+        attr_defs = type_def.definition.get("attributes", [])
+        if attr_defs:
+            errors = _validate_attributes(body.attributes, attr_defs)
+            if errors:
+                raise HTTPException(422, detail={"message": "属性校验失败", "errors": errors})
 
     entity = Entity(
         type_name=body.type_name,
@@ -286,6 +343,71 @@ async def get_entity_cognition(
     return _entity_cognition(entity, type_def, relations)
 
 
+@router.get("/entities/{entity_id}/attribute-schema")
+async def get_entity_attribute_schema(
+    entity_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """获取实体的属性元数据 schema（用于前端表单生成）。"""
+    try:
+        eid = uuid.UUID(entity_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid UUID")
+
+    entity = await session.get(Entity, eid)
+    if not entity:
+        raise HTTPException(404, "Entity not found")
+
+    type_def = await session.get(EntityTypeDef, entity.type_name)
+    if not type_def:
+        return {"type_name": entity.type_name, "attributes": [], "metrics": [], "relations": []}
+
+    definition = type_def.definition or {}
+    return {
+        "type_name": entity.type_name,
+        "display_name": type_def.display_name or entity.type_name,
+        "category": type_def.category,
+        "attributes": definition.get("attributes", []),
+        "metrics": definition.get("metrics", []),
+        "metrics_by_category": _group_metrics_by_category(definition.get("metrics", [])),
+        "health_model": definition.get("health"),
+        "current_values": entity.attributes or {},
+    }
+
+
+@router.get("/type-schema/{type_name}")
+async def get_type_schema(
+    type_name: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """获取类型的完整 schema（属性/指标/关系/健康模型），不需实体ID。"""
+    type_def = await session.get(EntityTypeDef, type_name)
+    if not type_def:
+        raise HTTPException(404, f"Type '{type_name}' not found")
+
+    definition = type_def.definition or {}
+    return {
+        "type_name": type_name,
+        "display_name": type_def.display_name or type_name,
+        "category": type_def.category,
+        "super_type": type_def.super_type,
+        "attributes": definition.get("attributes", []),
+        "metrics": definition.get("metrics", []),
+        "metrics_by_category": _group_metrics_by_category(definition.get("metrics", [])),
+        "relations": definition.get("relations", []),
+        "health_model": definition.get("health"),
+    }
+
+
+def _group_metrics_by_category(metrics: list) -> dict:
+    """按 category 分组指标。"""
+    groups = {}
+    for m in metrics:
+        cat = m.get("category", "other")
+        (groups[cat] if cat in groups else groups.setdefault(cat, [])).append(m)
+    return groups
+
+
 @router.get("/entities/{entity_id}/health")
 async def get_entity_health(
     entity_id: str,
@@ -370,6 +492,23 @@ async def create_relationship(
         e2 = uuid.UUID(body.end2_guid)
     except ValueError:
         raise HTTPException(400, "Invalid UUID")
+
+    # 校验关系约束：from_entity.type 必须匹配关系定义的 end1_type
+    entity1 = await session.get(Entity, e1)
+    entity2 = await session.get(Entity, e2)
+    if not entity1 or not entity2:
+        raise HTTPException(404, "Source or target entity not found")
+
+    rel_type_def = await session.get(RelationshipTypeDef, body.type_name)
+    if rel_type_def:
+        if rel_type_def.end1_type and entity1.type_name != rel_type_def.end1_type:
+            raise HTTPException(422,
+                f"关系类型 '{body.type_name}' 要求源实体类型为 '{rel_type_def.end1_type}'，"
+                f"但 '{entity1.name}' 的类型为 '{entity1.type_name}'")
+        if rel_type_def.end2_type and entity2.type_name != rel_type_def.end2_type:
+            raise HTTPException(422,
+                f"关系类型 '{body.type_name}' 要求目标实体类型为 '{rel_type_def.end2_type}'，"
+                f"但 '{entity2.name}' 的类型为 '{entity2.type_name}'")
 
     rel = Relationship(
         type_name=body.type_name,

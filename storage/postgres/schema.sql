@@ -107,7 +107,13 @@ CREATE TABLE IF NOT EXISTS relationship (
     confidence      FLOAT DEFAULT 1.0,
     is_active       BOOLEAN DEFAULT true,
     dimension       VARCHAR(16) DEFAULT 'vertical',  -- 'horizontal' 调用链 / 'vertical' 归属树
+    is_active       BOOLEAN DEFAULT true,
     first_seen      TIMESTAMPTZ DEFAULT now(),
+    last_seen       TIMESTAMPTZ DEFAULT now(),
+    expired_at      TIMESTAMPTZ,                      -- 关系过期时间
+    verified_by     VARCHAR(128),                      -- 人工确认者
+    verified_at     TIMESTAMPTZ,                       -- 确认时间
+    created_at      TIMESTAMPTZ DEFAULT now()
     last_seen       TIMESTAMPTZ DEFAULT now(),
     created_at      TIMESTAMPTZ DEFAULT now()
 );

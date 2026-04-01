@@ -82,12 +82,15 @@ class Relationship(Base):
     to_guid = Column(UUID(as_uuid=True), ForeignKey("entity.guid"))
 
     attributes = Column(JSONB, default=dict)
-    source = Column(String(64), default="manual")
+    source = Column(String(64), default="manual")  # manual/trace_discovered/imported/auto_discovered
     confidence = Column(Float, default=1.0)
     dimension = Column(String(16), default="vertical")  # horizontal=调用链, vertical=归属树
     is_active = Column(Boolean, default=True)
     first_seen = Column(DateTime(timezone=True), default=datetime.utcnow)
     last_seen = Column(DateTime(timezone=True), default=datetime.utcnow)
+    expired_at = Column(DateTime(timezone=True))           # 关系过期时间
+    verified_by = Column(String(128))                      # 人工确认者
+    verified_at = Column(DateTime(timezone=True))          # 确认时间
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
