@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Card, Tag, Drawer, Descriptions, Spin, Empty, Space, Row, Col, Divider, Progress, Tabs } from 'antd';
+import { Card, Tag, Drawer, Descriptions, Spin, Empty, Space, Row, Col, Divider, Progress, Tabs, Table, Timeline, Badge } from 'antd';
 import {
   ApartmentOutlined, ApiOutlined, DatabaseOutlined,
   DesktopOutlined, CloudServerOutlined, GlobalOutlined,
-  BranchesOutlined,
+  BranchesOutlined, AlertOutlined, ClockCircleOutlined,
+  FileTextOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import axios from 'axios';
 
@@ -144,6 +145,10 @@ const TopologyPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('global');
   const [drawerTab, setDrawerTab] = useState('metrics');
   const [hlGuid, setHlGuid] = useState<string | null>(null);
+  const [entityAlerts, setEntityAlerts] = useState<any[]>([]);
+  const [entityRecords, setEntityRecords] = useState<any[]>([]);
+  const [entitySpans, setEntitySpans] = useState<any[]>([]);
+  const [drawerLoading, setDrawerLoading] = useState(false);
 
   // ---- 数据加载 ----
   const fetchData = useCallback(async () => {
@@ -323,8 +328,26 @@ const TopologyPage: React.FC = () => {
   }, [hlGuid, relations]);
 
   // ---- 节点点击 ----
-  const handleNodeClick = (e: Entity) => {
+  const handleNodeClick = async (e: Entity) => {
     setSelected(e); setHlGuid(e.guid); setDrawerOpen(true); setDrawerTab('metrics');
+    setEntityAlerts([]); setEntityRecords([]); setEntitySpans([]);
+    setDrawerLoading(true);
+    try {
+      const [alertRes, recordRes] = await Promise.all([
+        axios.get(`${API}/entities/${e.guid}/alerts`, { params: { limit: 20 } }).catch(() => ({ data: { items: [] } })),
+        axios.get(`/api/v1/records`, { params: { entity_name: e.name, time_range: '24h', limit: 20 } }).catch(() => ({ data: { items: [] } })),
+      ]);
+      setEntityAlerts(alertRes.data.items || []);
+      setEntityRecords(recordRes.data.items || []);
+      // Trace spans (从 ClickHouse 查)
+      try {
+        const spanRes = await axios.get(`/api/v1/cmdb/discover/trace/topology`, { params: { window_minutes: 60 } });
+        const spans = (spanRes.data.relations || [])
+          .filter((r: any) => r.caller === e.name || r.callee === e.name);
+        setEntitySpans(spans);
+      } catch { setEntitySpans([]); }
+    } catch (err) { console.error(err); }
+    setDrawerLoading(false);
   };
   const handleDrawerClose = () => { setDrawerOpen(false); setHlGuid(null); };
 
@@ -651,6 +674,7 @@ const TopologyPage: React.FC = () => {
             </Descriptions>
 
             <Divider style={{ margin: '12px 0' }} />
+            {drawerLoading ? <Spin style={{ display: 'block', margin: '20px auto' }} /> :
             <Tabs activeKey={drawerTab} onChange={setDrawerTab} size="small"
               items={[
                 { key: 'metrics', label: '📊 指标', children: (
@@ -674,7 +698,53 @@ const TopologyPage: React.FC = () => {
                     <Space wrap>{Object.entries(selected.attributes || {}).map(([k, v]) => <Tag key={k}>{k}: {String(v)}</Tag>)}</Space>
                   </>
                 )},
-                { key: 'drill', label: '🌲 纵向下钻', children: <DrillDownTree entity={selected} /> },
+                { key: 'alerts', label: <span><AlertOutlined /> 告警{entityAlerts.length > 0 && <Badge count={entityAlerts.length} size="small" style={{ marginLeft: 4 }} />}</span>, children: (
+                  entityAlerts.length === 0 ? <Empty description="暂无告警" imageStyle={{ height: 40 }} /> :
+                  <Table size="small" pagination={false} rowKey="alert_id"
+                    dataSource={entityAlerts}
+                    columns={[
+                      { title: '状态', dataIndex: 'status', width: 50, render: (s: string) => s === 'firing' ? <Tag color="red">🔥</Tag> : <Tag color="green">✅</Tag> },
+                      { title: '严重度', dataIndex: 'severity', width: 70, render: (s: string) => <Tag color={s === 'critical' ? 'red' : s === 'error' ? 'orange' : 'gold'}>{s}</Tag> },
+                      { title: '标题', dataIndex: 'title', ellipsis: true },
+                      { title: '时间', dataIndex: 'starts_at', width: 130, render: (t: string) => t ? new Date(t).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-' },
+                    ]}
+                  />
+                )},
+                { key: 'events', label: <span><FileTextOutlined /> 记录</span>, children: (
+                  entityRecords.length === 0 ? <Empty description="暂无记录" imageStyle={{ height: 40 }} /> :
+                  <Timeline size="small" style={{ maxHeight: 400, overflow: 'auto', padding: '0 8px' }}
+                    items={entityRecords.map(r => ({
+                      color: r.severity === 'critical' ? 'red' : r.severity === 'error' ? 'orange' : r.severity === 'warning' ? 'gold' : 'green',
+                      children: (
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 600 }}>{r.title || r.record_type}</div>
+                          <div style={{ fontSize: 10, color: '#8c8c8c' }}>
+                            {r.timestamp ? new Date(r.timestamp).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}
+                            {' · '}{r.record_type}{' · '}{r.severity}
+                          </div>
+                        </div>
+                      ),
+                    }))}
+                  />
+                )},
+                { key: 'spans', label: <span><ThunderboltOutlined /> 调用链</span>, children: (
+                  entitySpans.length === 0 ? <Empty description="暂无调用链数据" imageStyle={{ height: 40 }} /> :
+                  <div style={{ maxHeight: 400, overflow: 'auto' }}>
+                    {entitySpans.map((s, i) => (
+                      <div key={i} style={{ padding: '6px 8px', marginBottom: 4, background: '#fafafa', borderRadius: 4, fontSize: 11 }}>
+                        <Space>
+                          <span style={{ fontWeight: 600 }}>{s.caller}</span>
+                          <span style={{ color: '#8c8c8c' }}>→</span>
+                          <span style={{ fontWeight: 600 }}>{s.callee}</span>
+                        </Space>
+                        <div style={{ color: '#8c8c8c', marginTop: 2 }}>
+                          {s.call_count}次 · P99: {s.p99_latency_ms}ms · 错误率: {s.error_rate}%
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )},
+                { key: 'drill', label: '🌲 下钻', children: <DrillDownTree entity={selected} /> },
                 { key: 'relations', label: '🔗 关系', children: (
                   <div style={{ maxHeight: 400, overflow: 'auto' }}>
                     {relations.filter(r => r.from_guid === selected.guid || r.to_guid === selected.guid).map(r => {
@@ -695,6 +765,7 @@ const TopologyPage: React.FC = () => {
                 )},
               ]}
             />
+            }
           </>
         )}
       </Drawer>
