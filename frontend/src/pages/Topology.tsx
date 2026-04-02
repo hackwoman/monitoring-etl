@@ -38,20 +38,34 @@ interface DrillNode {
 const healthColors: Record<string, string> = {
   healthy: '#52c41a', warning: '#faad14', critical: '#ff4d4f', down: '#a8071a',
 };
-const typeColors: Record<string, string> = {
-  Business: '#722ed1', Service: '#1890ff', Host: '#13c2c2',
-  MySQL: '#fa8c16', Redis: '#eb2f96', Database: '#fa8c16',
-  NetworkDevice: '#2f54eb', Middleware: '#13c2c2',
-};
-const relColors: Record<string, string> = {
-  calls: '#1890ff', depends_on: '#fa8c16', runs_on: '#13c2c2',
-  includes: '#722ed1', hosts: '#13c2c2', connected_to: '#2f54eb',
+// 类型→图形形状（不靠颜色区分）
+const typeShapes: Record<string, 'rect' | 'circle' | 'diamond' | 'hexagon'> = {
+  Business: 'diamond', Service: 'rect', Host: 'hexagon',
+  MySQL: 'circle', Redis: 'circle', Database: 'circle',
+  NetworkDevice: 'diamond', Middleware: 'rect',
 };
 const typeIcons: Record<string, React.ReactNode> = {
   Business: <ApartmentOutlined />, Service: <ApiOutlined />,
   Host: <DesktopOutlined />, MySQL: <DatabaseOutlined />,
   Redis: <DatabaseOutlined />, Database: <DatabaseOutlined />,
   NetworkDevice: <CloudServerOutlined />,
+};
+// 关系→线条样式（不靠颜色区分）
+const relLineStyle: Record<string, { dash: string; width: number }> = {
+  calls:          { dash: 'none',    width: 2 },
+  depends_on:     { dash: '6,3',     width: 1.5 },
+  runs_on:        { dash: '4,3',     width: 1.5 },
+  hosts:          { dash: '4,3',     width: 1.5 },
+  includes:       { dash: '8,4',     width: 2 },
+  connected_to:   { dash: '2,2',     width: 1 },
+  has_endpoint:   { dash: '1,2',     width: 1 },
+  async_calls:    { dash: '10,3,2,3', width: 1.5 },
+};
+// 保留类型颜色（仅用于抽屉详情等辅助场景，不在拓扑主视觉中使用）
+const typeColors: Record<string, string> = {
+  Business: '#722ed1', Service: '#1890ff', Host: '#13c2c2',
+  MySQL: '#fa8c16', Redis: '#eb2f96', Database: '#fa8c16',
+  NetworkDevice: '#2f54eb', Middleware: '#13c2c2',
 };
 
 // ============================================================
@@ -102,7 +116,7 @@ const DrillDownTree: React.FC<{ entity: Entity }> = ({ entity }) => {
           background: depth === 0 ? `${hColor}10` : '#fafafa',
           border: `1px solid ${depth === 0 ? hColor : '#f0f0f0'}`,
         }}>
-          {node.relation_type && <Tag color={relColors[node.relation_type] || '#999'} style={{ fontSize: 9 }}>{node.relation_type}</Tag>}
+          {node.relation_type && <Tag style={{ fontSize: 9, border: `1px dashed ${healthColors[e.health_level] || '#d9d9d9'}`, background: 'transparent' }}>{node.relation_type}</Tag>}
           <span style={{ fontWeight: depth === 0 ? 700 : 400, fontSize: 12 }}>{e.name}</span>
           <Tag color={typeColors[e.type_name]}>{e.type_name}</Tag>
           <span style={{ fontSize: 11, color: hColor, fontWeight: 600 }}>{e.health_score ?? '?'}</span>
@@ -314,26 +328,44 @@ const TopologyPage: React.FC = () => {
   };
   const handleDrawerClose = () => { setDrawerOpen(false); setHlGuid(null); };
 
-  // ---- SVG 节点渲染 ----
+  // ---- SVG 节点渲染（形状区分类型，颜色区分健康度） ----
   const renderNode = (e: Entity, x: number, y: number, w = 160, h = 70) => {
     const hc = healthColors[e.health_level] || '#d9d9d9';
     const isBad = e.health_level === 'critical' || e.health_level === 'down';
     const isSel = hlGuid === e.guid;
+    const shape = typeShapes[e.type_name] || 'rect';
+
+    // 形状标记（右上角小图标）
+    const shapeIcon = (() => {
+      const sx = x + w - 16, sy = y + 6, ss = 10;
+      switch (shape) {
+        case 'circle':   return <circle cx={sx + ss/2} cy={sy + ss/2} r={ss/2} fill={hc} opacity={0.7} />;
+        case 'diamond':  return <rect x={sx} y={sy} width={ss} height={ss} fill={hc} opacity={0.7} transform={`rotate(45 ${sx + ss/2} ${sy + ss/2})`} />;
+        case 'hexagon':  return <polygon points={`${sx+5},${sy} ${sx+10},${sy+3} ${sx+10},${sy+7} ${sx+5},${sy+10} ${sx},${sy+7} ${sx},${sy+3}`} fill={hc} opacity={0.7} />;
+        default:         return <rect x={sx} y={sy} width={ss} height={ss} rx={2} fill={hc} opacity={0.7} />;
+      }
+    })();
+
     return (
       <g key={e.guid} style={{ cursor: 'pointer' }} onClick={() => handleNodeClick(e)}>
+        {/* 健康度底色光晕 */}
         {isBad && <rect x={x - 3} y={y - 3} width={w + 6} height={h + 6} rx={10} fill={hc} opacity={0.08} />}
+        {/* 卡片 */}
         <rect x={x} y={y} width={w} height={h} rx={8}
           fill="white" stroke={isSel ? '#1890ff' : isBad ? hc : '#e8e8e8'}
           strokeWidth={isSel ? 2.5 : isBad ? 2 : 1} />
-        <rect x={x} y={y} width={4} height={h} rx={2} fill={typeColors[e.type_name] || '#999'} />
-        <rect x={x + 4} y={y} width={w - 4} height={3} rx={1} fill={hc} opacity={0.3} />
-        <text x={x + 14} y={y + 24} fontSize={12} fontWeight={700} fill="#262626">
+        {/* 底部健康度条 */}
+        <rect x={x + 1} y={y + h - 4} width={(w - 2) * ((e.health_score || 0) / 100)} height={3} rx={1} fill={hc} opacity={0.6} />
+        {/* 形状标记 */}
+        {shapeIcon}
+        {/* 文字 */}
+        <text x={x + 12} y={y + 24} fontSize={12} fontWeight={700} fill="#262626">
           {e.name.length > 18 ? e.name.slice(0, 16) + '…' : e.name}
         </text>
-        <text x={x + 14} y={y + 42} fontSize={10} fill="#8c8c8c">{e.type_name}</text>
+        <text x={x + 12} y={y + 42} fontSize={10} fill="#8c8c8c">{e.type_name}</text>
         <text x={x + 80} y={y + 42} fontSize={10} fontWeight={600} fill={hc}>{e.health_score ?? '?'}分</text>
-        {(e.risk_score ?? 0) > 50 && <text x={x + 120} y={y + 42} fontSize={9} fill="#ff4d4f">🔥{e.risk_score}</text>}
-        {e.biz_service && <text x={x + 14} y={y + 58} fontSize={9} fill="#bfbfbf">{e.biz_service}</text>}
+        {(e.risk_score ?? 0) > 50 && <text x={x + 120} y={y + 42} fontSize={9} fill="#ff4d4f">⚠{e.risk_score}</text>}
+        {e.biz_service && <text x={x + 12} y={y + 58} fontSize={9} fill="#bfbfbf">{e.biz_service}</text>}
       </g>
     );
   };
@@ -388,18 +420,18 @@ const TopologyPage: React.FC = () => {
               </g>
             );
           })}
-          {/* 连线 */}
+          {/* 连线（线条样式区分关系类型） */}
           {relations.map(rel => {
             const f = globalLayout.pos[rel.from_guid], t = globalLayout.pos[rel.to_guid];
             if (!f || !t) return null;
             const isHl = relatedRels.has(rel.guid);
             const dimmed = hlGuid && !isHl;
-            const col = isHl ? '#1890ff' : (relColors[rel.type_name] || '#d9d9d9') + '50';
+            const ls = relLineStyle[rel.type_name] || { dash: 'none', width: 1.2 };
             return (
               <g key={rel.guid} opacity={dimmed ? 0.12 : 1}>
                 <line x1={f.x + 80} y1={f.y + 35} x2={t.x + 80} y2={t.y + 35}
-                  stroke={col} strokeWidth={isHl ? 2.5 : 1.2}
-                  strokeDasharray={['runs_on', 'hosts', 'connected_to'].includes(rel.type_name) ? '4,3' : 'none'}
+                  stroke={isHl ? '#1890ff' : '#8c8c8c'} strokeWidth={isHl ? ls.width + 1 : ls.width}
+                  strokeDasharray={ls.dash}
                   markerEnd="url(#arrow)" />
               </g>
             );
@@ -480,15 +512,17 @@ const TopologyPage: React.FC = () => {
           {relations.filter(r => r.type_name === 'connected_to').map(r => {
             const f = infraLayout.pos[r.from_guid], t = infraLayout.pos[r.to_guid];
             if (!f || !t) return null;
+            const ls = relLineStyle['connected_to'];
             return <line key={r.guid} x1={f.x + 80} y1={f.y + 35} x2={t.x + 80} y2={t.y}
-              stroke="#2f54eb" strokeWidth={1.5} strokeDasharray="4,3" markerEnd="url(#arrow-i)" />;
+              stroke="#8c8c8c" strokeWidth={ls.width} strokeDasharray={ls.dash} markerEnd="url(#arrow-i)" />;
           })}
           {/* 主机 → 服务 连线 */}
           {relations.filter(r => r.type_name === 'runs_on').map(r => {
             const f = infraLayout.pos[r.from_guid], t = infraLayout.pos[r.to_guid];
             if (!f || !t) return null;
+            const ls = relLineStyle['runs_on'];
             return <line key={r.guid} x1={f.x + 80} y1={f.y + 70} x2={t.x + 80} y2={t.y}
-              stroke="#13c2c2" strokeWidth={1} strokeDasharray="4,3" markerEnd="url(#arrow-i)" opacity={0.5} />;
+              stroke="#8c8c8c" strokeWidth={ls.width} strokeDasharray={ls.dash} markerEnd="url(#arrow-i)" opacity={0.6} />;
           })}
           {/* 节点 */}
           {entities.filter(e => infraLayout.pos[e.guid]).map(e => {
@@ -537,12 +571,57 @@ const TopologyPage: React.FC = () => {
         renderInfra()
       }
 
-      {/* 图例 */}
-      <Card title="图例" size="small" style={{ marginTop: 16 }}>
-        <Row gutter={[24, 8]}>
-          <Col><strong>健康度：</strong>{Object.entries(healthColors).map(([l, c]) => <Tag key={l} color={c}>{l}</Tag>)}</Col>
-          <Col><strong>类型：</strong>{Object.entries(typeColors).map(([t, c]) => <Tag key={t} color={c}>{t}</Tag>)}</Col>
-          <Col><strong>关系：</strong>{Object.entries(relColors).map(([r, c]) => <Tag key={r} color={c}>{r}</Tag>)}</Col>
+      {/* 图例（三维度正交分离） */}
+      <Card title="📐 图例" size="small" style={{ marginTop: 16 }}>
+        <Row gutter={[32, 12]}>
+          {/* 健康度 = 颜色 */}
+          <Col>
+            <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 4 }}>🟢 健康度（颜色）</div>
+            <Space>
+              {Object.entries(healthColors).map(([l, c]) => (
+                <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 12, height: 12, borderRadius: '50%', background: c, display: 'inline-block' }} />
+                  <span style={{ fontSize: 12 }}>{l}</span>
+                </span>
+              ))}
+            </Space>
+          </Col>
+          {/* 对象类型 = 图形 */}
+          <Col>
+            <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 4 }}>🔷 对象类型（图形）</div>
+            <Space>
+              {[
+                { type: 'Service', shape: '■', desc: '方块' },
+                { type: 'Host', shape: '⬡', desc: '六边形' },
+                { type: 'MySQL/Redis', shape: '●', desc: '圆形' },
+                { type: 'Business', shape: '◆', desc: '菱形' },
+                { type: 'Network', shape: '◆', desc: '菱形' },
+              ].map(({ type, shape }) => (
+                <span key={type} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ fontSize: 14, color: '#595959' }}>{shape}</span>
+                  <span style={{ fontSize: 12 }}>{type}</span>
+                </span>
+              ))}
+            </Space>
+          </Col>
+          {/* 关系 = 线条样式 */}
+          <Col>
+            <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 4 }}>━ 关系（线条）</div>
+            <Space>
+              {[
+                { name: 'calls', label: '调用', dash: '—' },
+                { name: 'depends_on', label: '依赖', dash: '┄┄' },
+                { name: 'runs_on', label: '运行于', dash: '┈┈' },
+                { name: 'includes', label: '包含', dash: '┅┅' },
+                { name: 'connected_to', label: '连接', dash: '···' },
+              ].map(({ label, dash }) => (
+                <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ fontSize: 13, color: '#595959', letterSpacing: -1 }}>{dash}</span>
+                  <span style={{ fontSize: 12 }}>{label}</span>
+                </span>
+              ))}
+            </Space>
+          </Col>
         </Row>
       </Card>
 
@@ -604,7 +683,7 @@ const TopologyPage: React.FC = () => {
                       const dir = r.from_guid === selected.guid ? '→' : '←';
                       return (
                         <div key={r.guid} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 6px', marginBottom: 3, background: '#fafafa', borderRadius: 4 }}>
-                          <Tag color={relColors[r.type_name]} style={{ fontSize: 9 }}>{r.type_name}</Tag>
+                          <Tag style={{ fontSize: 9 }}>{r.type_name}</Tag>
                           <span>{dir}</span>
                           <span style={{ fontWeight: 600, fontSize: 12 }}>{other?.name || '未知'}</span>
                           {other && <Tag color={typeColors[other.type_name]}>{other.type_name}</Tag>}
