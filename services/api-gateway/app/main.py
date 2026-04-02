@@ -47,6 +47,24 @@ async def proxy_chat(request: Request):
     return await _proxy(request, f"{CMDB_API_URL}/api/v1/chat")
 
 
+@app.api_route("/api/v1/alerts/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def proxy_alerts(request: Request, path: str):
+    """Proxy to CMDB API alerts endpoint."""
+    return await _proxy(request, f"{CMDB_API_URL}/api/v1/alerts/{path}")
+
+
+@app.api_route("/api/v1/alerts", methods=["GET", "POST"])
+async def proxy_alerts_root(request: Request):
+    """Proxy to CMDB API alerts root."""
+    return await _proxy(request, f"{CMDB_API_URL}/api/v1/alerts")
+
+
+@app.api_route("/api/v1/records", methods=["GET"])
+async def proxy_records(request: Request):
+    """Proxy to CMDB API records endpoint."""
+    return await _proxy(request, f"{CMDB_API_URL}/api/v1/records")
+
+
 async def _proxy(request: Request, target_url: str):
     """Generic proxy handler."""
     async with httpx.AsyncClient(timeout=30) as client:

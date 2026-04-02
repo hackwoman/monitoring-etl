@@ -67,6 +67,22 @@ services:
       - cmdb-api
     restart: unless-stopped
 
+  # ---- 统一告警引擎 ----
+  alert-engine:
+    build:
+      context: ./services/alert-engine
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@47.93.61.196:5432/cmdb
+      CLICKHOUSE_URL: http://47.93.61.196:8123
+      ALERT_ENGINE_INTERVAL: "60"
+      WEBHOOK_PORT: "8003"
+    ports:
+      - "8003:8003"
+    depends_on:
+      - cmdb-api
+    restart: unless-stopped
+
   # ---- 前端 ----
   frontend:
     build:

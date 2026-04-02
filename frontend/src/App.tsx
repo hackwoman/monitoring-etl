@@ -7,12 +7,14 @@ import {
   DashboardOutlined,
   ClusterOutlined,
   MessageOutlined,
+  AlertOutlined,
 } from '@ant-design/icons';
 import LogsPage from './pages/Logs';
 import CmdbPage from './pages/Cmdb';
 import OverviewPage from './pages/Overview';
 import TopologyPage from './pages/Topology';
 import ChatPage from './pages/Chat';
+import AlertsPage from './pages/Alerts';
 
 const { Header, Content, Sider } = Layout;
 
@@ -32,6 +34,7 @@ const App: React.FC = () => (
               { key: 'overview', icon: <DashboardOutlined />, label: <Link to="/">总览</Link> },
               { key: 'topology', icon: <ClusterOutlined />, label: <Link to="/topology">拓扑</Link> },
               { key: 'cmdb', icon: <DatabaseOutlined />, label: <Link to="/cmdb">CMDB</Link> },
+              { key: 'alerts', icon: <AlertOutlined />, label: <Link to="/alerts">告警</Link> },
               { key: 'logs', icon: <FileTextOutlined />, label: <Link to="/logs">日志</Link> },
               { key: 'chat', icon: <MessageOutlined />, label: <Link to="/chat">问答</Link> },
             ]}
@@ -42,6 +45,7 @@ const App: React.FC = () => (
             <Route path="/" element={<OverviewPage />} />
             <Route path="/topology" element={<TopologyPage />} />
             <Route path="/cmdb" element={<CmdbPage />} />
+            <Route path="/alerts" element={<AlertsPage />} />
             <Route path="/logs" element={<LogsPage />} />
             <Route path="/chat" element={<ChatPage />} />
           </Routes>

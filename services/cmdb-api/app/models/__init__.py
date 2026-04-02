@@ -161,6 +161,76 @@ class DataCheckRule(Base):
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class AlertRule(Base):
+    """告警策略。"""
+    __tablename__ = "alert_rule"
+
+    rule_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    rule_name = Column(String(256), nullable=False)
+    description = Column(Text)
+    rule_source = Column(String(32), default="builtin")
+    target_type = Column(String(128))
+    target_filter = Column(JSONB, default=dict)
+    condition_type = Column(String(32), nullable=False)
+    condition_expr = Column(JSONB, nullable=False)
+    severity = Column(String(16), default="warning")
+    eval_interval = Column(Integer, default=60)
+    eval_window = Column(Integer, default=300)
+    for_duration = Column(Integer, default=0)
+    group_by = Column(JSONB, default=list)
+    inhibit_rules = Column(JSONB, default=list)
+    silence_until = Column(DateTime(timezone=True))
+    notify_channels = Column(JSONB, default=list)
+    notify_template = Column(Text)
+    is_enabled = Column(Boolean, default=True)
+    created_by = Column(String(128), default="system")
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AlertInstance(Base):
+    """告警实例 — 活跃告警的状态机。"""
+    __tablename__ = "alert_instance"
+
+    alert_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    rule_id = Column(UUID(as_uuid=True), ForeignKey("alert_rule.rule_id"), nullable=False)
+    entity_guid = Column(UUID(as_uuid=True), ForeignKey("entity.guid"))
+    entity_name = Column(String(512))
+    entity_type = Column(String(128))
+    status = Column(String(16), default="firing")  # pending/firing/resolved/acknowledged/silenced
+    starts_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    ends_at = Column(DateTime(timezone=True))
+    ack_at = Column(DateTime(timezone=True))
+    ack_by = Column(String(128))
+    silence_at = Column(DateTime(timezone=True))
+    silence_until = Column(DateTime(timezone=True))
+    severity = Column(String(16))
+    title = Column(String(512))
+    summary = Column(Text)
+    fingerprint = Column(String(64))
+    record_id = Column(UUID(as_uuid=True))
+    group_id = Column(UUID(as_uuid=True))
+    blast_radius = Column(Integer, default=0)
+    affected_biz = Column(JSONB, default=list)
+    notified_at = Column(DateTime(timezone=True))
+    notify_count = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class NotificationChannel(Base):
+    """通知渠道。"""
+    __tablename__ = "notification_channel"
+
+    channel_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    channel_name = Column(String(256), nullable=False)
+    channel_type = Column(String(32), nullable=False)  # webhook/feishu/dingtalk/email/sms
+    config = Column(JSONB, nullable=False)
+    template = Column(Text)
+    is_enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 class DataQualitySnapshot(Base):
     """数据质量快照。"""
     __tablename__ = "data_quality_snapshot"
