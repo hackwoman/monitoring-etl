@@ -712,20 +712,20 @@ const TopologyPage: React.FC = () => {
                 )},
                 { key: 'events', label: <span><FileTextOutlined /> 记录</span>, children: (
                   entityRecords.length === 0 ? <Empty description="暂无记录" imageStyle={{ height: 40 }} /> :
-                  <Timeline size="small" style={{ maxHeight: 400, overflow: 'auto', padding: '0 8px' }}
-                    items={entityRecords.map(r => ({
-                      color: r.severity === 'critical' ? 'red' : r.severity === 'error' ? 'orange' : r.severity === 'warning' ? 'gold' : 'green',
-                      children: (
-                        <div>
+                  <div style={{ maxHeight: 400, overflow: 'auto', padding: '0 8px' }}>
+                    <Timeline>
+                      {entityRecords.map((r, i) => (
+                        <Timeline.Item key={i}
+                          color={r.severity === 'critical' ? 'red' : r.severity === 'error' ? 'orange' : r.severity === 'warning' ? 'gold' : 'green'}>
                           <div style={{ fontSize: 11, fontWeight: 600 }}>{r.title || r.record_type}</div>
                           <div style={{ fontSize: 10, color: '#8c8c8c' }}>
                             {r.timestamp ? new Date(r.timestamp).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}
                             {' · '}{r.record_type}{' · '}{r.severity}
                           </div>
-                        </div>
-                      ),
-                    }))}
-                  />
+                        </Timeline.Item>
+                      ))}
+                    </Timeline>
+                  </div>
                 )},
                 { key: 'spans', label: <span><ThunderboltOutlined /> 调用链</span>, children: (
                   entitySpans.length === 0 ? <Empty description="暂无调用链数据" imageStyle={{ height: 40 }} /> :
