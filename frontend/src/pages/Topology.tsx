@@ -69,6 +69,27 @@ const typeColors: Record<string, string> = {
   NetworkDevice: '#2f54eb', Middleware: '#13c2c2',
 };
 
+// ---- 圆形节点相关 ----
+const NODE_R = 32;
+
+function errorArc(r: number, ratio: number): string {
+  if (ratio <= 0) return '';
+  if (ratio >= 1) return `M 0 ${-r} A ${r} ${r} 0 1 1 -0.01 ${-r} Z`;
+  const startAngle = Math.PI / 2;
+  const endAngle = startAngle - ratio * 2 * Math.PI;
+  const x1 = r * Math.cos(startAngle), y1 = r * Math.sin(startAngle);
+  const x2 = r * Math.cos(endAngle), y2 = r * Math.sin(endAngle);
+  const large = ratio > 0.5 ? 1 : 0;
+  return `M 0 0 L ${x1} ${y1} A ${r} ${r} 0 ${large} 0 ${x2} ${y2} Z`;
+}
+
+const typeIconChars: Record<string, string> = {
+  Service: '⚙', Host: '🖥', MySQL: '🐬',
+  Redis: '💎', Database: '🗄', Business: '🏢',
+  NetworkDevice: '🌐', Middleware: '⚙', Endpoint: '🔗',
+  K8sCluster: '☸', K8sPod: '📦', IP: '🌐',
+};
+
 // ============================================================
 // 纵向下钻拓扑组件
 // ============================================================
@@ -355,99 +376,49 @@ const TopologyPage: React.FC = () => {
   const handleDrawerClose = () => { setDrawerOpen(false); setHlGuid(null); };
 
   // ---- 圆形节点渲染 ----
-// 外环 = 健康度颜色（边框）
-// 内部扇形 = 错误率（从底部顺时针填充，半透明红）
-// 中心 = 图标 + 名称
-const NODE_R = 32; // 圆形半径
+  const renderNode = (e: Entity, x: number, y: number, errorRate?: number) => {
+    const hc = healthColors[e.health_level] || '#d9d9d9';
+    const isBad = e.health_level === 'critical' || e.health_level === 'down';
+    const isSel = hlGuid === e.guid;
+    const r = NODE_R;
+    const er = Math.min(100, Math.max(0, errorRate ?? 0));
+    const erRatio = er / 100;
+    const erColor = er > 10 ? '#ff4d4f' : er > 2 ? '#faad14' : 'rgba(255,77,79,0.15)';
+    return (
+      <g key={e.guid} style={{ cursor: 'pointer' }} onClick={() => handleNodeClick(e)}
+         transform={`translate(${x}, ${y})`}>
+        {isSel && <circle cx={0} cy={0} r={r + 6} fill="none" stroke="#1890ff" strokeWidth={2} strokeDasharray="4,2" />}
+        {isBad && !isSel && <circle cx={0} cy={0} r={r + 4} fill={hc} opacity={0.08} />}
+        <circle cx={0} cy={0} r={r} fill="white" />
+        {erRatio > 0 && <path d={errorArc(r, erRatio)} fill={erColor} opacity={0.35} />}
+        <circle cx={0} cy={0} r={r} fill="none" stroke={hc} strokeWidth={isBad ? 3 : 2} />
+        <text x={0} y={-6} fontSize={16} textAnchor="middle" dominantBaseline="middle">{typeIconChars[e.type_name] || '📄'}</text>
+        <text x={0} y={10} fontSize={8} fontWeight={700} fill="#262626" textAnchor="middle">{e.name.length > 8 ? e.name.slice(0, 7) + '…' : e.name}</text>
+        <text x={0} y={20} fontSize={7} fill={hc} textAnchor="middle" fontWeight={600}>{e.health_score ?? '?'}</text>
+      </g>
+    );
+  };
 
-// 错误率扇形路径（从底部顺时针，0~1）
-function errorArc(r: number, ratio: number): string {
-  if (ratio <= 0) return '';
-  if (ratio >= 1) {
-    return `M 0 ${-r} A ${r} ${r} 0 1 1 -0.01 ${-r} Z`;
-  }
-  // 从底部(-90°/270°)开始顺时针
-  const startAngle = Math.PI / 2; // 底部
-  const endAngle = startAngle - ratio * 2 * Math.PI; // 顺时针减少
-  const x1 = r * Math.cos(startAngle);
-  const y1 = r * Math.sin(startAngle);
-  const x2 = r * Math.cos(endAngle);
-  const y2 = r * Math.sin(endAngle);
-  const large = ratio > 0.5 ? 1 : 0;
-  return `M 0 0 L ${x1} ${y1} A ${r} ${r} 0 ${large} 0 ${x2} ${y2} Z`;
-}
-
-// 类型图标（SVG text，不用 ReactNode）
-const typeIconChars: Record<string, string> = {
-  Service: '⚙', Host: '🖥', MySQL: '🐬',
-  Redis: '💎', Database: '🗄', Business: '🏢',
-  NetworkDevice: '🌐', Middleware: '⚙', Endpoint: '🔗',
-  K8sCluster: '☸', K8sPod: '📦', IP: '🌐',
-};
-
-const renderNode = (e: Entity, x: number, y: number, errorRate?: number) => {
-  const hc = healthColors[e.health_level] || '#d9d9d9';
-  const isBad = e.health_level === 'critical' || e.health_level === 'down';
-  const isSel = hlGuid === e.guid;
-  const r = NODE_R;
-  const er = Math.min(100, Math.max(0, errorRate ?? 0));
-  const erRatio = er / 100;
-  const erColor = er > 10 ? '#ff4d4f' : er > 2 ? '#faad14' : 'rgba(255,77,79,0.15)';
-
-  return (
-    <g key={e.guid} style={{ cursor: 'pointer' }} onClick={() => handleNodeClick(e)}
-       transform={`translate(${x}, ${y})`}>
-      {/* 选中光晕 */}
-      {isSel && <circle cx={0} cy={0} r={r + 6} fill="none" stroke="#1890ff" strokeWidth={2} strokeDasharray="4,2" />}
-      {isBad && !isSel && <circle cx={0} cy={0} r={r + 4} fill={hc} opacity={0.08} />}
-      {/* 白色底圆 */}
-      <circle cx={0} cy={0} r={r} fill="white" />
-      {/* 错误率扇形填充 */}
-      {erRatio > 0 && <path d={errorArc(r, erRatio)} fill={erColor} opacity={0.35} />}
-      {/* 健康度外环 */}
-      <circle cx={0} cy={0} r={r} fill="none" stroke={hc} strokeWidth={isBad ? 3 : 2} />
-      {/* 类型图标 */}
-      <text x={0} y={-6} fontSize={16} textAnchor="middle" dominantBaseline="middle">
-        {typeIconChars[e.type_name] || '📄'}
-      </text>
-      {/* 名称 */}
-      <text x={0} y={10} fontSize={8} fontWeight={700} fill="#262626" textAnchor="middle">
-        {e.name.length > 8 ? e.name.slice(0, 7) + '…' : e.name}
-      </text>
-      {/* 健康度分数 */}
-      <text x={0} y={20} fontSize={7} fill={hc} textAnchor="middle" fontWeight={600}>
-        {e.health_score ?? '?'}
-      </text>
-    </g>
-  );
-};
-
-// ---- 调用拓扑的节点（同圆形设计） ----
-const renderNameNode = (name: string, x: number, y: number, errorRate?: number) => {
-  const e = entityByName[name];
-  const hc = e ? (healthColors[e.health_level] || '#d9d9d9') : '#52c41a';
-  const isBad = e && (e.health_level === 'critical' || e.health_level === 'down');
-  const r = NODE_R;
-  const er = Math.min(100, Math.max(0, errorRate ?? 0));
-  const erRatio = er / 100;
-  const erColor = er > 10 ? '#ff4d4f' : er > 2 ? '#faad14' : 'rgba(255,77,79,0.15)';
-
-  return (
-    <g key={name} style={{ cursor: 'pointer' }} onClick={() => e && handleNodeClick(e)}
-       transform={`translate(${x}, ${y})`}>
-      <circle cx={0} cy={0} r={r} fill="white" />
-      {erRatio > 0 && <path d={errorArc(r, erRatio)} fill={erColor} opacity={0.35} />}
-      <circle cx={0} cy={0} r={r} fill="none" stroke={isBad ? hc : '#d9d9d9'} strokeWidth={isBad ? 3 : 1.5} />
-      <text x={0} y={-6} fontSize={16} textAnchor="middle" dominantBaseline="middle">
-        {e ? (typeIconChars[e.type_name] || '📄') : '🔍'}
-      </text>
-      <text x={0} y={10} fontSize={8} fontWeight={700} fill="#262626" textAnchor="middle">
-        {name.length > 8 ? name.slice(0, 7) + '…' : name}
-      </text>
-      {e && <text x={0} y={20} fontSize={7} fill={hc} textAnchor="middle" fontWeight={600}>{e.health_score ?? '?'}</text>}
-    </g>
-  );
-};
+  const renderNameNode = (name: string, x: number, y: number, errorRate?: number) => {
+    const e = entityByName[name];
+    const hc = e ? (healthColors[e.health_level] || '#d9d9d9') : '#52c41a';
+    const isBad = e && (e.health_level === 'critical' || e.health_level === 'down');
+    const r = NODE_R;
+    const er = Math.min(100, Math.max(0, errorRate ?? 0));
+    const erRatio = er / 100;
+    const erColor = er > 10 ? '#ff4d4f' : er > 2 ? '#faad14' : 'rgba(255,77,79,0.15)';
+    return (
+      <g key={name} style={{ cursor: 'pointer' }} onClick={() => e && handleNodeClick(e)}
+         transform={`translate(${x}, ${y})`}>
+        <circle cx={0} cy={0} r={r} fill="white" />
+        {erRatio > 0 && <path d={errorArc(r, erRatio)} fill={erColor} opacity={0.35} />}
+        <circle cx={0} cy={0} r={r} fill="none" stroke={isBad ? hc : '#d9d9d9'} strokeWidth={isBad ? 3 : 1.5} />
+        <text x={0} y={-6} fontSize={16} textAnchor="middle" dominantBaseline="middle">{e ? (typeIconChars[e.type_name] || '📄') : '🔍'}</text>
+        <text x={0} y={10} fontSize={8} fontWeight={700} fill="#262626" textAnchor="middle">{name.length > 8 ? name.slice(0, 7) + '…' : name}</text>
+        {e && <text x={0} y={20} fontSize={7} fill={hc} textAnchor="middle" fontWeight={600}>{e.health_score ?? '?'}</text>}
+      </g>
+    );
+  };
 
   // ============================================================
   // 三个视图
