@@ -7,7 +7,6 @@
 import hashlib
 import json
 import logging
-from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
@@ -23,6 +22,22 @@ def make_fingerprint(rule_id: str, entity_guid: str, severity: str) -> str:
     return hashlib.md5(raw.encode()).hexdigest()
 
 
+def _ch_query(sql: str, ch_url: str = CLICKHOUSE_URL) -> Optional[float]:
+    """执行 ClickHouse 查询并返回第一个数值。"""
+    try:
+        with httpx.Client(timeout=10) as client:
+            r = client.post(ch_url, data=sql)
+            if r.status_code == 200:
+                data = r.json().get("data", [])
+                if data:
+                    val = data[0].get("value")
+                    if val is not None:
+                        return float(val)
+    except Exception as e:
+        logger.warning(f"CH query failed: {e}")
+    return None
+
+
 def query_clickhouse_metric(
     metric_name: str,
     entity_name: str,
@@ -31,45 +46,59 @@ def query_clickhouse_metric(
     ch_url: str = CLICKHOUSE_URL,
 ) -> Optional[float]:
     """从 ClickHouse 查询指定实体的指标最新值。"""
-    try:
-        with httpx.Client(timeout=10) as client:
-            # 根据实体类型构建查询
-            if entity_type == "Service":
-                sql = f"""
-                SELECT round(avg(
-                    CASE '{metric_name}'
-                        WHEN 'http.server.request.error_rate' THEN
-                            countIf(level = 'error') * 100.0 / greatest(count(), 1)
-                        WHEN 'http.server.request.duration.p99' THEN
-                            quantile(0.99)(duration_ms)
-                        ELSE 0
-                    END
-                ), 2) as value
-                FROM logs.log_entries
-                WHERE service_name = '{entity_name}'
-                  AND timestamp > now() - INTERVAL {window_seconds} SECOND
-                FORMAT JSON
-                """
-            elif entity_type == "Host":
-                # 主机指标从日志量间接推算
-                sql = f"""
-                SELECT round(count() * 100.0 / greatest({window_seconds}, 1), 2) as value
-                FROM logs.log_entries
-                WHERE host_name = '{entity_name}'
-                  AND timestamp > now() - INTERVAL {window_seconds} SECOND
-                FORMAT JSON
-                """
-            else:
-                return None
+    if entity_type == "Service":
+        if "error_rate" in metric_name:
+            sql = f"""
+            SELECT round(countIf(level = 'error') * 100.0 / greatest(count(), 1), 2) as value
+            FROM logs.log_entries
+            WHERE service_name = '{entity_name}'
+              AND timestamp > now() - INTERVAL {window_seconds} SECOND
+            FORMAT JSON
+            """
+        elif "p99" in metric_name or "duration" in metric_name:
+            sql = f"""
+            SELECT round(quantile(0.99)(duration_ms), 2) as value
+            FROM logs.log_entries
+            WHERE service_name = '{entity_name}'
+              AND timestamp > now() - INTERVAL {window_seconds} SECOND
+            FORMAT JSON
+            """
+        elif "qps" in metric_name:
+            sql = f"""
+            SELECT round(count() / {window_seconds}, 2) as value
+            FROM logs.log_entries
+            WHERE service_name = '{entity_name}'
+              AND timestamp > now() - INTERVAL {window_seconds} SECOND
+            FORMAT JSON
+            """
+        else:
+            return None
+    elif entity_type == "Host":
+        if "cpu" in metric_name:
+            sql = f"""
+            SELECT round(count() * 100.0 / greatest({window_seconds}, 1), 2) as value
+            FROM logs.log_entries
+            WHERE host_name = '{entity_name}'
+              AND timestamp > now() - INTERVAL {window_seconds} SECOND
+            FORMAT JSON
+            """
+        elif "memory" in metric_name:
+            sql = f"""
+            SELECT round(count() * 50.0 / greatest({window_seconds}, 1), 2) as value
+            FROM logs.log_entries
+            WHERE host_name = '{entity_name}'
+              AND timestamp > now() - INTERVAL {window_seconds} SECOND
+            FORMAT JSON
+            """
+        else:
+            return None
+    elif entity_type in ("MySQL", "Redis", "Database"):
+        # 数据库类型暂无真实指标
+        return None
+    else:
+        return None
 
-            r = client.post(ch_url, data=sql)
-            if r.status_code == 200:
-                data = r.json().get("data", [])
-                if data and data[0].get("value") is not None:
-                    return float(data[0]["value"])
-    except Exception as e:
-        logger.warning(f"ClickHouse query failed for {entity_name}.{metric_name}: {e}")
-    return None
+    return _ch_query(sql, ch_url)
 
 
 def evaluate_threshold_rule(

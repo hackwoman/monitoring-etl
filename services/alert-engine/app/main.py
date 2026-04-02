@@ -154,9 +154,31 @@ def load_relationships(pg):
 def write_record_to_ch(record_id: str, alert: dict, entity_guid: str, entity_name: str, entity_type: str):
     """写入 ClickHouse records 表。"""
     try:
+        from datetime import datetime
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        entity_guid_sql = f"'{entity_guid}'" if entity_guid else "toUUID('00000000-0000-0000-0000-000000000000')"
-        group_id = f"'{alert.get('group_id', '00000000-0000-0000-0000-000000000000')}'"
+        entity_guid_sql = f"'{entity_guid}'" if entity_guid and entity_guid != "None" else "toUUID('00000000-0000-0000-0000-000000000000')"
+        gid = alert.get("group_id")
+        group_id_sql = f"'{gid}'" if gid and gid != "None" else "toUUID('00000000-0000-0000-0000-000000000000')"
+
+        # 用参数化方式避免转义问题：直接 JSON 写入
+        values = {
+            "record_id": record_id,
+            "record_type": "alert",
+            "source": alert.get("source", "alert-engine"),
+            "timestamp": now_str,
+            "entity_guid": entity_guid if entity_guid and entity_guid != "None" else "00000000-0000-0000-0000-000000000000",
+            "entity_name": entity_name or "",
+            "entity_type": entity_type or "",
+            "severity": alert.get("severity", "warning"),
+            "title": alert.get("title", ""),
+            "content": json.dumps(alert, ensure_ascii=False),
+            "fingerprint": alert.get("fingerprint", ""),
+            "group_id": gid if gid and gid != "None" else "00000000-0000-0000-0000-000000000000",
+            "alert_status": alert.get("status", "firing"),
+            "alert_rule_id": "00000000-0000-0000-0000-000000000000",
+            "alert_starts_at": now_str,
+            "alert_ends_at": now_str,
+        }
 
         sql = f"""
         INSERT INTO records (
@@ -165,20 +187,14 @@ def write_record_to_ch(record_id: str, alert: dict, entity_guid: str, entity_nam
             severity, title, content,
             fingerprint, group_id,
             alert_status, alert_rule_id, alert_starts_at, alert_ends_at
-        ) VALUES (
-            '{record_id}', 'alert', '{alert.get("source", "external")}',
-            '{now_str}',
-            {entity_guid_sql}, '{_escape(entity_name)}', '{entity_type}',
-            '{alert.get("severity", "warning")}', '{_escape(alert.get("title", ""))}',
-            '{_escape(json.dumps(alert, ensure_ascii=False))}',
-            '{alert.get("fingerprint", "")}', {group_id},
-            '{alert.get("status", "firing")}',
-            toUUID('00000000-0000-0000-0000-000000000000'),
-            '{now_str}', '{now_str}'
-        )
+        ) FORMAT JSONEachRow
         """
         with httpx.Client(timeout=10) as client:
-            client.post(CLICKHOUSE_URL, data=sql.encode("utf-8"))
+            client.post(
+                f"{CLICKHOUSE_URL}?query={sql.strip()}",
+                content=json.dumps(values).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
     except Exception as e:
         logger.warning(f"写入 ClickHouse 失败: {e}")
 
@@ -336,7 +352,7 @@ def run_evaluation():
                             f"{rule.get('description', '')}{value_str}",
                             fingerprint,
                             record_id,
-                            group_id,
+                            str(group_id) if group_id else None,
                         ))
 
                         # 写 ClickHouse record
