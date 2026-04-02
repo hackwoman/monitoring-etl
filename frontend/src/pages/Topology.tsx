@@ -83,12 +83,94 @@ function errorArc(r: number, ratio: number): string {
   return `M 0 0 L ${x1} ${y1} A ${r} ${r} 0 ${large} 0 ${x2} ${y2} Z`;
 }
 
-const typeIconChars: Record<string, string> = {
-  Service: '⚙', Host: '🖥', MySQL: '🐬',
-  Redis: '💎', Database: '🗄', Business: '🏢',
-  NetworkDevice: '🌐', Middleware: '⚙', Endpoint: '🔗',
-  K8sCluster: '☸', K8sPod: '📦', IP: '🌐',
+// ---- 类型 SVG 图标（简洁线条，SVG 内渲染一致） ----
+// 每个图标是 SVG path/data，在圆心 (0,0) 附近绘制，尺寸约 18x18
+type IconFn = (color: string) => React.ReactNode;
+const _typeIcons: Record<string, IconFn> = {
+  // Service: 闪电（API/微服务的经典抽象标识）
+  Service: (c) => <g><path d="M-2,-8 L4,-1 L0,-1 L2,8 L-4,1 L0,1 Z" fill={c} opacity={0.85} /></g>,
+  // Host: 服务器机架
+  Host: (c) => <g>
+    <rect x={-7} y={-7} width={14} height={4} rx={1} fill="none" stroke={c} strokeWidth={1.5} />
+    <rect x={-7} y={-2} width={14} height={4} rx={1} fill="none" stroke={c} strokeWidth={1.5} />
+    <rect x={-7} y={3} width={14} height={4} rx={1} fill="none" stroke={c} strokeWidth={1.5} />
+    <circle cx={-4} cy={-5} r={1} fill={c} /><circle cx={-4} cy={0} r={1} fill={c} /><circle cx={-4} cy={5} r={1} fill={c} />
+  </g>,
+  // MySQL: 海豚剪影（简化）
+  MySQL: (c) => <g>
+    <path d="M0,-7 C4,-7 7,-4 7,-1 C7,3 4,7 0,7 C-2,7 -3,5 -3,3 L-5,5 L-5,3 C-6,1 -6,-2 -4,-4 C-3,-6 -1,-7 0,-7Z" fill={c} opacity={0.25} stroke={c} strokeWidth={1} />
+    <path d="M3,-4 L6,-6 M6,-6 L5,-3" stroke={c} strokeWidth={1} fill="none" />
+  </g>,
+  // Redis: 红色方块堆叠（Redis logo 简化 — 三个堆叠方块）
+  Redis: (c) => <g>
+    <rect x={-6} y={-6} width={12} height={3} rx={1} fill={c} opacity={0.3} stroke={c} strokeWidth={1} />
+    <rect x={-6} y={-2} width={12} height={3} rx={1} fill={c} opacity={0.3} stroke={c} strokeWidth={1} />
+    <rect x={-6} y={2} width={12} height={3} rx={1} fill={c} opacity={0.3} stroke={c} strokeWidth={1} />
+  </g>,
+  // Database: 圆柱（通用数据库标识）
+  Database: (c) => <g>
+    <ellipse cx={0} cy={-4} rx={7} ry={3} fill="none" stroke={c} strokeWidth={1.5} />
+    <path d="M-7,-4 L-7,4 A7,3 0 0,0 7,4 L7,-4" fill={c} opacity={0.15} stroke={c} strokeWidth={1.5} />
+    <ellipse cx={0} cy={0} rx={7} ry={3} fill="none" stroke={c} strokeWidth={0.8} opacity={0.4} />
+  </g>,
+  // Business: 六宫格（企业/组织）
+  Business: (c) => <g>
+    <rect x={-7} y={-7} width={5} height={5} rx={1} fill={c} opacity={0.3} stroke={c} strokeWidth={1} />
+    <rect x={2} y={-7} width={5} height={5} rx={1} fill={c} opacity={0.3} stroke={c} strokeWidth={1} />
+    <rect x={-7} y={2} width={5} height={5} rx={1} fill={c} opacity={0.3} stroke={c} strokeWidth={1} />
+    <rect x={2} y={2} width={5} height={5} rx={1} fill={c} opacity={0.3} stroke={c} strokeWidth={1} />
+  </g>,
+  // NetworkDevice: 路由器/交换机（两个交叉箭头）
+  NetworkDevice: (c) => <g>
+    <rect x={-7} y={-4} width={14} height={8} rx={2} fill="none" stroke={c} strokeWidth={1.5} />
+    <circle cx={-3} cy={-1} r={1.2} fill={c} /><circle cx={0} cy={-1} r={1.2} fill={c} /><circle cx={3} cy={-1} r={1.2} fill={c} />
+    <line x1={-5} y1={3} x2={-1} y2={3} stroke={c} strokeWidth={1} /><line x1={1} y1={3} x2={5} y2={3} stroke={c} strokeWidth={1} />
+  </g>,
+  // Middleware: 分层（中间件的层叠概念）
+  Middleware: (c) => <g>
+    <path d="M0,-7 L7,-3 L7,3 L0,7 L-7,3 L-7,-3 Z" fill="none" stroke={c} strokeWidth={1.5} />
+    <line x1={-7} y1={-3} x2={7} y2={-3} stroke={c} strokeWidth={0.8} opacity={0.5} />
+    <line x1={-7} y1={3} x2={7} y2={3} stroke={c} strokeWidth={0.8} opacity={0.5} />
+  </g>,
+  // Endpoint: 链路/接口
+  Endpoint: (c) => <g>
+    <path d="M-6,0 L-2,-5 L2,0 L-2,5 Z" fill={c} opacity={0.3} stroke={c} strokeWidth={1} />
+    <line x1={2} y1={0} x2={7} y2={0} stroke={c} strokeWidth={1.5} />
+  </g>,
+  // K8sCluster: 六边形（蜂巢）
+  K8sCluster: (c) => <g>
+    <path d="M0,-7 L6,-3.5 L6,3.5 L0,7 L-6,3.5 L-6,-3.5 Z" fill="none" stroke={c} strokeWidth={1.5} />
+    <circle cx={0} cy={0} r={2} fill={c} opacity={0.3} stroke={c} strokeWidth={1} />
+  </g>,
+  // K8sPod: 舵轮简化
+  K8sPod: (c) => <g>
+    <circle cx={0} cy={0} r={5} fill="none" stroke={c} strokeWidth={1.5} />
+    <path d="M0,-5 L0,-2 M5,0 L2,0 M0,5 L0,2 M-5,0 L-2,0" stroke={c} strokeWidth={1.5} />
+    <circle cx={0} cy={0} r={1.5} fill={c} />
+  </g>,
+  // Firewall: 盾牌
+  Firewall: (c) => <g>
+    <path d="M0,-7 L7,-4 L7,2 L0,7 L-7,2 L-7,-4 Z" fill={c} opacity={0.15} stroke={c} strokeWidth={1.5} />
+    <line x1={-3} y1={-1} x2={3} y2={-1} stroke={c} strokeWidth={1.2} />
+    <line x1={-3} y1={2} x2={3} y2={2} stroke={c} strokeWidth={1.2} />
+  </g>,
+  // IP: 地球简化
+  IP: (c) => <g>
+    <circle cx={0} cy={0} r={7} fill="none" stroke={c} strokeWidth={1.5} />
+    <ellipse cx={0} cy={0} rx={3} ry={7} fill="none" stroke={c} strokeWidth={0.8} />
+    <line x1={-7} y1={0} x2={7} y2={0} stroke={c} strokeWidth={0.8} />
+  </g>,
+  // 默认
+  default: (c) => <g>
+    <rect x={-6} y={-6} width={12} height={12} rx={3} fill="none" stroke={c} strokeWidth={1.5} />
+    <text x={0} y={4} fontSize={10} textAnchor="middle" fill={c}>?</text>
+  </g>,
 };
+// 导出为 getter 函数，避免 TS 在 JSX 里的 callable union 问题
+function getTypeIcon(typeName: string, color = '#595959'): React.ReactNode {
+  const fn = _typeIcons[typeName] || _typeIcons['default'];
+  return fn(color);
+}
 
 // ============================================================
 // 纵向下钻拓扑组件
@@ -392,8 +474,13 @@ const TopologyPage: React.FC = () => {
         <circle cx={0} cy={0} r={r} fill="white" />
         {erRatio > 0 && <path d={errorArc(r, erRatio)} fill={erColor} opacity={0.35} />}
         <circle cx={0} cy={0} r={r} fill="none" stroke={hc} strokeWidth={isBad ? 3 : 2} />
-        <text x={0} y={-6} fontSize={16} textAnchor="middle" dominantBaseline="middle">{typeIconChars[e.type_name] || '📄'}</text>
-        <text x={0} y={10} fontSize={8} fontWeight={700} fill="#262626" textAnchor="middle">{e.name.length > 8 ? e.name.slice(0, 7) + '…' : e.name}</text>
+        {/* 类型图标 */}
+        <g transform="translate(0, -6)">
+          {getTypeIcon(e.type_name)}
+        </g>
+        {/* 名称 */}
+        <text x={0} y={12} fontSize={7} fontWeight={700} fill="#262626" textAnchor="middle">{e.name.length > 8 ? e.name.slice(0, 7) + '…' : e.name}</text>
+        {/* 健康度分数 */}
         <text x={0} y={20} fontSize={7} fill={hc} textAnchor="middle" fontWeight={600}>{e.health_score ?? '?'}</text>
       </g>
     );
@@ -413,8 +500,10 @@ const TopologyPage: React.FC = () => {
         <circle cx={0} cy={0} r={r} fill="white" />
         {erRatio > 0 && <path d={errorArc(r, erRatio)} fill={erColor} opacity={0.35} />}
         <circle cx={0} cy={0} r={r} fill="none" stroke={isBad ? hc : '#d9d9d9'} strokeWidth={isBad ? 3 : 1.5} />
-        <text x={0} y={-6} fontSize={16} textAnchor="middle" dominantBaseline="middle">{e ? (typeIconChars[e.type_name] || '📄') : '🔍'}</text>
-        <text x={0} y={10} fontSize={8} fontWeight={700} fill="#262626" textAnchor="middle">{name.length > 8 ? name.slice(0, 7) + '…' : name}</text>
+        <g transform="translate(0, -6)">
+          {e ? getTypeIcon(e.type_name) : <text x={0} y={4} fontSize={10} textAnchor="middle" fill="#999">?</text>}
+        </g>
+        <text x={0} y={12} fontSize={7} fontWeight={700} fill="#262626" textAnchor="middle">{name.length > 8 ? name.slice(0, 7) + '…' : name}</text>
         {e && <text x={0} y={20} fontSize={7} fill={hc} textAnchor="middle" fontWeight={600}>{e.health_score ?? '?'}</text>}
       </g>
     );
@@ -628,8 +717,20 @@ const TopologyPage: React.FC = () => {
         </span>
         <span>
           <strong>图标</strong> = 类型：
-          {Object.entries(typeIconChars).filter(([k]) => ['Service','Host','MySQL','Redis','Business','NetworkDevice'].includes(k)).map(([k, v]) => (
-            <span key={k} style={{ marginLeft: 6 }}>{v}{k}</span>
+          <svg width="0" height="0" style={{ position: 'absolute' }}>
+            <defs>
+              {Object.keys(_typeIcons).filter(k => k !== 'default').map(k => {
+                return <g key={k} id={`legend-icon-${k}`}>{getTypeIcon(k)}</g>;
+              })}
+            </defs>
+          </svg>
+          {['Service','Host','MySQL','Redis','Business','NetworkDevice'].map(k => (
+            <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginLeft: 6 }}>
+              <svg width={16} height={16} viewBox="-10 -10 20 20">
+                <g transform="translate(0,0) scale(0.8)">{getTypeIcon(k)}</g>
+              </svg>
+              <span style={{ fontSize: 11 }}>{k}</span>
+            </span>
           ))}
         </span>
         <span>
@@ -639,8 +740,13 @@ const TopologyPage: React.FC = () => {
 
       {/* 详情抽屉 */}
       <Drawer
-        title={<Space>{selected && typeIcons[selected.type_name]}<span>{selected?.name}</span>
-          {selected && <Tag color={healthColors[selected.health_level]}>{selected.health_level}</Tag>}</Space>}
+        title={<Space>
+          {selected && <svg width={18} height={18} viewBox="-10 -10 20 20">
+            <g transform="scale(0.7)">{getTypeIcon(selected!.type_name)}</g>
+          </svg>}
+          <span>{selected?.name}</span>
+          {selected && <Tag color={healthColors[selected.health_level]}>{selected.health_level}</Tag>}
+        </Space>}
         open={drawerOpen} onClose={handleDrawerClose} width={480}
       >
         {selected && (
