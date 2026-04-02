@@ -180,18 +180,10 @@ def write_record_to_ch(record_id: str, alert: dict, entity_guid: str, entity_nam
             "alert_ends_at": now_str,
         }
 
-        sql = f"""
-        INSERT INTO records (
-            record_id, record_type, source, timestamp,
-            entity_guid, entity_name, entity_type,
-            severity, title, content,
-            fingerprint, group_id,
-            alert_status, alert_rule_id, alert_starts_at, alert_ends_at
-        ) FORMAT JSONEachRow
-        """
+        sql = "INSERT INTO records (record_id, record_type, source, timestamp, entity_guid, entity_name, entity_type, severity, title, content, fingerprint, group_id, alert_status, alert_rule_id, alert_starts_at, alert_ends_at) FORMAT JSONEachRow"
         with httpx.Client(timeout=10) as client:
             client.post(
-                f"{CLICKHOUSE_URL}?query={sql.strip()}",
+                f"{CLICKHOUSE_URL}?query={httpx.QueryParams({'query': sql}).get('query')}",
                 content=json.dumps(values).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
             )
