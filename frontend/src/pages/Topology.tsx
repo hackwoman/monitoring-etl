@@ -201,7 +201,7 @@ const TopologyPage: React.FC = () => {
     const bizGroups: Record<string, Entity[]> = {};
     entities.forEach(e => { (bizGroups[e.biz_service || '未分组'] ||= []).push(e); });
 
-    const W = 1100, cardW = 160, layerGap = 130, bizGap = 50;
+    const W = 1100, nodeGap = NODE_R * 2 + 12, layerGap = NODE_R * 2 + 30, bizGap = 20;
     const pos: Record<string, { x: number; y: number }> = {};
     let totalH = 40;
 
@@ -217,11 +217,13 @@ const TopologyPage: React.FC = () => {
 
       for (let i = 0; i < sorted.length; i++) {
         const items = layers[sorted[i]];
-        const sp = Math.min(cardW + 30, (W - 100) / items.length);
+        const sp = Math.min(nodeGap + 10, (W - 80) / items.length);
         const sx = (W - sp * (items.length - 1)) / 2;
-        const y = baseY + 20 + (sorted.length - 1 - i) * layerGap;
+        const y = baseY + NODE_R + 10 + (sorted.length - 1 - i) * layerGap;
         items.forEach((e, j) => { pos[e.guid] = { x: sx + j * sp, y }; });
       }
+      pos[`__biz_${biz}`] = { x: 20, y: baseY };
+      totalH = baseY + groupH + bizGap;
       pos[`__biz_${biz}`] = { x: 20, y: baseY };
       totalH = baseY + groupH + bizGap;
     }
@@ -264,7 +266,7 @@ const TopologyPage: React.FC = () => {
       (layers[maxLayer + 1] ||= []).push(n);
     });
 
-    const W = 1100, sp = 180, layerH = 120;
+    const W = 1100, sp = NODE_R * 2 + 30, layerH = NODE_R * 2 + 40;
     const pos: Record<string, { x: number; y: number }> = {};
     const sortedLayers = Object.keys(layers).map(Number).sort((a, b) => a - b);
     let maxItems = 0;
@@ -296,14 +298,14 @@ const TopologyPage: React.FC = () => {
       }
     }
 
-    const W = 1100, sp = 180;
+    const W = 1100, sp = NODE_R * 2 + 20;
     const pos: Record<string, { x: number; y: number }> = {};
 
     // 网络设备在顶部
-    nets.forEach((n, i) => { pos[n.guid] = { x: W / 2 - (nets.length - 1) * sp / 2 + i * sp, y: 40 }; });
+    nets.forEach((n, i) => { pos[n.guid] = { x: W / 2 - (nets.length - 1) * sp / 2 + i * sp, y: 45 }; });
 
     // 主机在中间
-    hosts.forEach((h, i) => { pos[h.guid] = { x: 40 + i * sp, y: 180 }; });
+    hosts.forEach((h, i) => { pos[h.guid] = { x: NODE_R + 20 + i * sp, y: 180 }; });
 
     // 主机上的服务在底部
     let childY = 320;
@@ -311,8 +313,9 @@ const TopologyPage: React.FC = () => {
       const host = entityByName[hostName];
       if (!host || !pos[host.guid]) continue;
       const hx = pos[host.guid].x;
+      const csp = Math.min(NODE_R * 2 + 10, 160 / Math.max(children.length, 1));
       children.forEach((c, i) => {
-        pos[c.guid] = { x: hx - (children.length - 1) * 60 + i * 120, y: childY };
+        pos[c.guid] = { x: hx - (children.length - 1) * csp / 2 + i * csp, y: childY };
       });
     }
 
@@ -351,67 +354,100 @@ const TopologyPage: React.FC = () => {
   };
   const handleDrawerClose = () => { setDrawerOpen(false); setHlGuid(null); };
 
-  // ---- SVG 节点渲染（形状区分类型，颜色区分健康度） ----
-  const renderNode = (e: Entity, x: number, y: number, w = 160, h = 70) => {
-    const hc = healthColors[e.health_level] || '#d9d9d9';
-    const isBad = e.health_level === 'critical' || e.health_level === 'down';
-    const isSel = hlGuid === e.guid;
-    const shape = typeShapes[e.type_name] || 'rect';
+  // ---- 圆形节点渲染 ----
+// 外环 = 健康度颜色（边框）
+// 内部扇形 = 错误率（从底部顺时针填充，半透明红）
+// 中心 = 图标 + 名称
+const NODE_R = 32; // 圆形半径
 
-    // 形状标记（右上角小图标）
-    const shapeIcon = (() => {
-      const sx = x + w - 16, sy = y + 6, ss = 10;
-      switch (shape) {
-        case 'circle':   return <circle cx={sx + ss/2} cy={sy + ss/2} r={ss/2} fill={hc} opacity={0.7} />;
-        case 'diamond':  return <rect x={sx} y={sy} width={ss} height={ss} fill={hc} opacity={0.7} transform={`rotate(45 ${sx + ss/2} ${sy + ss/2})`} />;
-        case 'hexagon':  return <polygon points={`${sx+5},${sy} ${sx+10},${sy+3} ${sx+10},${sy+7} ${sx+5},${sy+10} ${sx},${sy+7} ${sx},${sy+3}`} fill={hc} opacity={0.7} />;
-        default:         return <rect x={sx} y={sy} width={ss} height={ss} rx={2} fill={hc} opacity={0.7} />;
-      }
-    })();
+// 错误率扇形路径（从底部顺时针，0~1）
+function errorArc(r: number, ratio: number): string {
+  if (ratio <= 0) return '';
+  if (ratio >= 1) {
+    return `M 0 ${-r} A ${r} ${r} 0 1 1 -0.01 ${-r} Z`;
+  }
+  // 从底部(-90°/270°)开始顺时针
+  const startAngle = Math.PI / 2; // 底部
+  const endAngle = startAngle - ratio * 2 * Math.PI; // 顺时针减少
+  const x1 = r * Math.cos(startAngle);
+  const y1 = r * Math.sin(startAngle);
+  const x2 = r * Math.cos(endAngle);
+  const y2 = r * Math.sin(endAngle);
+  const large = ratio > 0.5 ? 1 : 0;
+  return `M 0 0 L ${x1} ${y1} A ${r} ${r} 0 ${large} 0 ${x2} ${y2} Z`;
+}
 
-    return (
-      <g key={e.guid} style={{ cursor: 'pointer' }} onClick={() => handleNodeClick(e)}>
-        {/* 健康度底色光晕 */}
-        {isBad && <rect x={x - 3} y={y - 3} width={w + 6} height={h + 6} rx={10} fill={hc} opacity={0.08} />}
-        {/* 卡片 */}
-        <rect x={x} y={y} width={w} height={h} rx={8}
-          fill="white" stroke={isSel ? '#1890ff' : isBad ? hc : '#e8e8e8'}
-          strokeWidth={isSel ? 2.5 : isBad ? 2 : 1} />
-        {/* 底部健康度条 */}
-        <rect x={x + 1} y={y + h - 4} width={(w - 2) * ((e.health_score || 0) / 100)} height={3} rx={1} fill={hc} opacity={0.6} />
-        {/* 形状标记 */}
-        {shapeIcon}
-        {/* 文字 */}
-        <text x={x + 12} y={y + 24} fontSize={12} fontWeight={700} fill="#262626">
-          {e.name.length > 18 ? e.name.slice(0, 16) + '…' : e.name}
-        </text>
-        <text x={x + 12} y={y + 42} fontSize={10} fill="#8c8c8c">{e.type_name}</text>
-        <text x={x + 80} y={y + 42} fontSize={10} fontWeight={600} fill={hc}>{e.health_score ?? '?'}分</text>
-        {(e.risk_score ?? 0) > 50 && <text x={x + 120} y={y + 42} fontSize={9} fill="#ff4d4f">⚠{e.risk_score}</text>}
-        {e.biz_service && <text x={x + 12} y={y + 58} fontSize={9} fill="#bfbfbf">{e.biz_service}</text>}
-      </g>
-    );
-  };
+// 类型图标（SVG text，不用 ReactNode）
+const typeIconChars: Record<string, string> = {
+  Service: '⚙', Host: '🖥', MySQL: '🐬',
+  Redis: '💎', Database: '🗄', Business: '🏢',
+  NetworkDevice: '🌐', Middleware: '⚙', Endpoint: '🔗',
+  K8sCluster: '☸', K8sPod: '📦', IP: '🌐',
+};
 
-  // ---- 呼名节点（调用拓扑用） ----
-  const renderNameNode = (name: string, x: number, y: number, w = 150, h = 60) => {
-    const e = entityByName[name];
-    const hc = e ? (healthColors[e.health_level] || '#d9d9d9') : '#52c41a';
-    const isBad = e && (e.health_level === 'critical' || e.health_level === 'down');
-    return (
-      <g key={name} style={{ cursor: 'pointer' }} onClick={() => e && handleNodeClick(e)}>
-        {isBad && <rect x={x - 3} y={y - 3} width={w + 6} height={h + 6} rx={10} fill={hc} opacity={0.1} />}
-        <rect x={x} y={y} width={w} height={h} rx={8}
-          fill="white" stroke={isBad ? hc : '#e8e8e8'} strokeWidth={isBad ? 2 : 1} />
-        <rect x={x} y={y} width={4} height={h} rx={2} fill={e ? (typeColors[e.type_name] || '#999') : '#999'} />
-        <text x={x + 12} y={y + 22} fontSize={12} fontWeight={700} fill="#262626">
-          {name.length > 16 ? name.slice(0, 14) + '…' : name}
-        </text>
-        {e && <text x={x + 12} y={y + 40} fontSize={10} fontWeight={600} fill={hc}>{e.health_score ?? '?'}分</text>}
-        {!e && <text x={x + 12} y={y + 40} fontSize={9} fill="#bfbfbf">Trace发现</text>}
-      </g>
-    );
-  };
+const renderNode = (e: Entity, x: number, y: number, errorRate?: number) => {
+  const hc = healthColors[e.health_level] || '#d9d9d9';
+  const isBad = e.health_level === 'critical' || e.health_level === 'down';
+  const isSel = hlGuid === e.guid;
+  const r = NODE_R;
+  const er = Math.min(100, Math.max(0, errorRate ?? 0));
+  const erRatio = er / 100;
+  const erColor = er > 10 ? '#ff4d4f' : er > 2 ? '#faad14' : 'rgba(255,77,79,0.15)';
+
+  return (
+    <g key={e.guid} style={{ cursor: 'pointer' }} onClick={() => handleNodeClick(e)}
+       transform={`translate(${x}, ${y})`}>
+      {/* 选中光晕 */}
+      {isSel && <circle cx={0} cy={0} r={r + 6} fill="none" stroke="#1890ff" strokeWidth={2} strokeDasharray="4,2" />}
+      {isBad && !isSel && <circle cx={0} cy={0} r={r + 4} fill={hc} opacity={0.08} />}
+      {/* 白色底圆 */}
+      <circle cx={0} cy={0} r={r} fill="white" />
+      {/* 错误率扇形填充 */}
+      {erRatio > 0 && <path d={errorArc(r, erRatio)} fill={erColor} opacity={0.35} />}
+      {/* 健康度外环 */}
+      <circle cx={0} cy={0} r={r} fill="none" stroke={hc} strokeWidth={isBad ? 3 : 2} />
+      {/* 类型图标 */}
+      <text x={0} y={-6} fontSize={16} textAnchor="middle" dominantBaseline="middle">
+        {typeIconChars[e.type_name] || '📄'}
+      </text>
+      {/* 名称 */}
+      <text x={0} y={10} fontSize={8} fontWeight={700} fill="#262626" textAnchor="middle">
+        {e.name.length > 8 ? e.name.slice(0, 7) + '…' : e.name}
+      </text>
+      {/* 健康度分数 */}
+      <text x={0} y={20} fontSize={7} fill={hc} textAnchor="middle" fontWeight={600}>
+        {e.health_score ?? '?'}
+      </text>
+    </g>
+  );
+};
+
+// ---- 调用拓扑的节点（同圆形设计） ----
+const renderNameNode = (name: string, x: number, y: number, errorRate?: number) => {
+  const e = entityByName[name];
+  const hc = e ? (healthColors[e.health_level] || '#d9d9d9') : '#52c41a';
+  const isBad = e && (e.health_level === 'critical' || e.health_level === 'down');
+  const r = NODE_R;
+  const er = Math.min(100, Math.max(0, errorRate ?? 0));
+  const erRatio = er / 100;
+  const erColor = er > 10 ? '#ff4d4f' : er > 2 ? '#faad14' : 'rgba(255,77,79,0.15)';
+
+  return (
+    <g key={name} style={{ cursor: 'pointer' }} onClick={() => e && handleNodeClick(e)}
+       transform={`translate(${x}, ${y})`}>
+      <circle cx={0} cy={0} r={r} fill="white" />
+      {erRatio > 0 && <path d={errorArc(r, erRatio)} fill={erColor} opacity={0.35} />}
+      <circle cx={0} cy={0} r={r} fill="none" stroke={isBad ? hc : '#d9d9d9'} strokeWidth={isBad ? 3 : 1.5} />
+      <text x={0} y={-6} fontSize={16} textAnchor="middle" dominantBaseline="middle">
+        {e ? (typeIconChars[e.type_name] || '📄') : '🔍'}
+      </text>
+      <text x={0} y={10} fontSize={8} fontWeight={700} fill="#262626" textAnchor="middle">
+        {name.length > 8 ? name.slice(0, 7) + '…' : name}
+      </text>
+      {e && <text x={0} y={20} fontSize={7} fill={hc} textAnchor="middle" fontWeight={600}>{e.health_score ?? '?'}</text>}
+    </g>
+  );
+};
 
   // ============================================================
   // 三个视图
@@ -428,32 +464,38 @@ const TopologyPage: React.FC = () => {
             <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
               <polygon points="0 0, 8 3, 0 6" fill="#bfbfbf" />
             </marker>
-            <filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="3" floodOpacity="0.1" /></filter>
           </defs>
           {/* 虚线框 */}
           {Object.entries(bizGroups).map(([biz, ents]) => {
             const ps = ents.map(e => globalLayout.pos[e.guid]).filter(Boolean);
             if (!ps.length) return null;
-            const x0 = Math.min(...ps.map(p => p.x)) - 20, x1 = Math.max(...ps.map(p => p.x)) + 180;
-            const y0 = Math.min(...ps.map(p => p.y)) - 10, y1 = Math.max(...ps.map(p => p.y)) + 80;
+            const pad = NODE_R + 10;
+            const x0 = Math.min(...ps.map(p => p.x)) - pad, x1 = Math.max(...ps.map(p => p.x)) + pad;
+            const y0 = Math.min(...ps.map(p => p.y)) - pad, y1 = Math.max(...ps.map(p => p.y)) + pad;
             return (
               <g key={biz}>
-                <rect x={x0} y={y0} width={x1 - x0} height={y1 - y0} rx={12} fill="none" stroke="#d9d9d9" strokeWidth={1.5} strokeDasharray="8,4" />
-                <text x={x0 + 8} y={y0 - 4} fontSize={11} fill="#8c8c8c" fontWeight="bold">📦 {biz}</text>
+                <rect x={x0} y={y0} width={x1 - x0} height={y1 - y0} rx={12} fill="none" stroke="#d9d9d9" strokeWidth={1} strokeDasharray="6,3" />
+                <text x={x0 + 6} y={y0 - 4} fontSize={10} fill="#8c8c8c" fontWeight="bold">{biz}</text>
               </g>
             );
           })}
-          {/* 连线（线条样式区分关系类型） */}
+          {/* 连线（从圆心到圆心，到圆边界截断） */}
           {relations.map(rel => {
             const f = globalLayout.pos[rel.from_guid], t = globalLayout.pos[rel.to_guid];
             if (!f || !t) return null;
             const isHl = relatedRels.has(rel.guid);
             const dimmed = hlGuid && !isHl;
             const ls = relLineStyle[rel.type_name] || { dash: 'none', width: 1.2 };
+            // 计算从 f 圆心到 t 圆心的线段，截断到圆边界
+            const dx = t.x - f.x, dy = t.y - f.y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            const ux = dx / dist, uy = dy / dist;
+            const x1 = f.x + ux * (NODE_R + 2), y1 = f.y + uy * (NODE_R + 2);
+            const x2 = t.x - ux * (NODE_R + 2), y2 = t.y - uy * (NODE_R + 2);
             return (
-              <g key={rel.guid} opacity={dimmed ? 0.12 : 1}>
-                <line x1={f.x + 80} y1={f.y + 35} x2={t.x + 80} y2={t.y + 35}
-                  stroke={isHl ? '#1890ff' : '#8c8c8c'} strokeWidth={isHl ? ls.width + 1 : ls.width}
+              <g key={rel.guid} opacity={dimmed ? 0.1 : 1}>
+                <line x1={x1} y1={y1} x2={x2} y2={y2}
+                  stroke={isHl ? '#1890ff' : '#bfbfbf'} strokeWidth={isHl ? ls.width + 0.5 : ls.width * 0.8}
                   strokeDasharray={ls.dash}
                   markerEnd="url(#arrow)" />
               </g>
@@ -466,7 +508,7 @@ const TopologyPage: React.FC = () => {
             const dimmed = hlGuid && e.guid !== hlGuid && !relatedRels.has(
               relations.find(r => r.from_guid === e.guid || r.to_guid === e.guid)?.guid || ''
             );
-            return <g key={e.guid} opacity={dimmed ? 0.2 : 1}>{renderNode(e, p.x, p.y)}</g>;
+            return <g key={e.guid} opacity={dimmed ? 0.15 : 1}>{renderNode(e, p.x, p.y)}</g>;
           })}
         </svg>
       </Card>
@@ -478,7 +520,7 @@ const TopologyPage: React.FC = () => {
     if (traceRels.length === 0) return <Empty description="暂无 Trace 调用数据，请先生成 Trace" />;
     return (
       <Card size="small" style={{ overflow: 'auto', background: '#fafbfc' }}>
-        <div style={{ marginBottom: 8, color: '#8c8c8c', fontSize: 12 }}>
+        <div style={{ marginBottom: 8, color: '#8c8c8c', fontSize: 11 }}>
           基于 Trace 数据自动发现 · 边粗细=调用量 · 颜色=错误率
         </div>
         <svg width="100%" height={callLayout.height} viewBox={`0 0 1100 ${callLayout.height}`} style={{ minWidth: 800 }}>
@@ -491,16 +533,19 @@ const TopologyPage: React.FC = () => {
           {traceRels.map((r, i) => {
             const f = callLayout.pos[r.caller], t = callLayout.pos[r.callee];
             if (!f || !t) return null;
-            // 边粗细：按调用量
             const sw = r.call_count > 10000 ? 3 : r.call_count > 1000 ? 2 : 1.2;
-            // 边颜色：按错误率
-            const col = r.error_rate > 20 ? '#ff4d4f' : r.error_rate > 5 ? '#faad14' : '#52c41a';
+            const col = r.error_rate > 20 ? '#ff4d4f' : r.error_rate > 5 ? '#faad14' : '#bfbfbf';
+            const dx = t.x - f.x, dy = t.y - f.y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            const ux = dx / dist, uy = dy / dist;
+            const x1 = f.x + ux * (NODE_R + 2), y1 = f.y + uy * (NODE_R + 2);
+            const x2 = t.x - ux * (NODE_R + 2), y2 = t.y - uy * (NODE_R + 2);
             return (
               <g key={i}>
-                <line x1={f.x + 75} y1={f.y + 60} x2={t.x + 75} y2={t.y}
+                <line x1={x1} y1={y1} x2={x2} y2={y2}
                   stroke={col} strokeWidth={sw} strokeOpacity={0.6} markerEnd="url(#arrow-c)" />
-                <text x={(f.x + t.x) / 2 + 75} y={(f.y + 60 + t.y) / 2}
-                  fontSize={9} fill="#8c8c8c" textAnchor="middle">
+                <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 6}
+                  fontSize={8} fill="#8c8c8c" textAnchor="middle">
                   {r.p99_latency_ms}ms · {r.error_rate}%
                 </text>
               </g>
@@ -510,7 +555,9 @@ const TopologyPage: React.FC = () => {
           {callLayout.nodeNames.map(name => {
             const p = callLayout.pos[name];
             if (!p) return null;
-            return renderNameNode(name, p.x, p.y);
+            // 传递错误率
+            const tr = traceRels.find(r => r.caller === name || r.callee === name);
+            return renderNameNode(name, p.x, p.y, tr?.error_rate);
           })}
         </svg>
       </Card>
@@ -531,32 +578,29 @@ const TopologyPage: React.FC = () => {
               <polygon points="0 0, 8 3, 0 6" fill="#bfbfbf" />
             </marker>
           </defs>
-          {/* 网络设备 → 主机 连线 */}
-          {relations.filter(r => r.type_name === 'connected_to').map(r => {
+          {/* 连线（圆心到圆心） */}
+          {relations.filter(r => r.type_name === 'connected_to' || r.type_name === 'runs_on').map(r => {
             const f = infraLayout.pos[r.from_guid], t = infraLayout.pos[r.to_guid];
             if (!f || !t) return null;
-            const ls = relLineStyle['connected_to'];
-            return <line key={r.guid} x1={f.x + 80} y1={f.y + 35} x2={t.x + 80} y2={t.y}
-              stroke="#8c8c8c" strokeWidth={ls.width} strokeDasharray={ls.dash} markerEnd="url(#arrow-i)" />;
-          })}
-          {/* 主机 → 服务 连线 */}
-          {relations.filter(r => r.type_name === 'runs_on').map(r => {
-            const f = infraLayout.pos[r.from_guid], t = infraLayout.pos[r.to_guid];
-            if (!f || !t) return null;
-            const ls = relLineStyle['runs_on'];
-            return <line key={r.guid} x1={f.x + 80} y1={f.y + 70} x2={t.x + 80} y2={t.y}
-              stroke="#8c8c8c" strokeWidth={ls.width} strokeDasharray={ls.dash} markerEnd="url(#arrow-i)" opacity={0.6} />;
+            const ls = relLineStyle[r.type_name] || { dash: '4,3', width: 1 };
+            const dx = t.x - f.x, dy = t.y - f.y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            const ux = dx / dist, uy = dy / dist;
+            const x1 = f.x + ux * (NODE_R + 2), y1 = f.y + uy * (NODE_R + 2);
+            const x2 = t.x - ux * (NODE_R + 2), y2 = t.y - uy * (NODE_R + 2);
+            return <line key={r.guid} x1={x1} y1={y1} x2={x2} y2={y2}
+              stroke="#bfbfbf" strokeWidth={ls.width * 0.8} strokeDasharray={ls.dash} markerEnd="url(#arrow-i)" />;
           })}
           {/* 节点 */}
           {entities.filter(e => infraLayout.pos[e.guid]).map(e => {
             const p = infraLayout.pos[e.guid];
             const dimmed = hlGuid && e.guid !== hlGuid;
-            return <g key={e.guid} opacity={dimmed ? 0.2 : 1}>{renderNode(e, p.x, p.y)}</g>;
+            return <g key={e.guid} opacity={dimmed ? 0.15 : 1}>{renderNode(e, p.x, p.y)}</g>;
           })}
           {/* 层标签 */}
-          <text x={10} y={55} fontSize={11} fill="#8c8c8c" fontWeight="bold">🌐 网络层</text>
-          <text x={10} y={195} fontSize={11} fill="#8c8c8c" fontWeight="bold">🖥️ 主机层</text>
-          <text x={10} y={335} fontSize={11} fill="#8c8c8c" fontWeight="bold">⚙️ 服务/DB层</text>
+          <text x={10} y={45 + NODE_R} fontSize={10} fill="#8c8c8c" fontWeight="bold">网络层</text>
+          <text x={10} y={180 + NODE_R} fontSize={10} fill="#8c8c8c" fontWeight="bold">主机层</text>
+          <text x={10} y={320 + NODE_R} fontSize={10} fill="#8c8c8c" fontWeight="bold">服务/DB</text>
         </svg>
       </Card>
     );
@@ -594,59 +638,33 @@ const TopologyPage: React.FC = () => {
         renderInfra()
       }
 
-      {/* 图例（三维度正交分离） */}
-      <Card title="📐 图例" size="small" style={{ marginTop: 16 }}>
-        <Row gutter={[32, 12]}>
-          {/* 健康度 = 颜色 */}
-          <Col>
-            <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 4 }}>🟢 健康度（颜色）</div>
-            <Space>
-              {Object.entries(healthColors).map(([l, c]) => (
-                <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ width: 12, height: 12, borderRadius: '50%', background: c, display: 'inline-block' }} />
-                  <span style={{ fontSize: 12 }}>{l}</span>
-                </span>
-              ))}
-            </Space>
-          </Col>
-          {/* 对象类型 = 图形 */}
-          <Col>
-            <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 4 }}>🔷 对象类型（图形）</div>
-            <Space>
-              {[
-                { type: 'Service', shape: '■', desc: '方块' },
-                { type: 'Host', shape: '⬡', desc: '六边形' },
-                { type: 'MySQL/Redis', shape: '●', desc: '圆形' },
-                { type: 'Business', shape: '◆', desc: '菱形' },
-                { type: 'Network', shape: '◆', desc: '菱形' },
-              ].map(({ type, shape }) => (
-                <span key={type} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 14, color: '#595959' }}>{shape}</span>
-                  <span style={{ fontSize: 12 }}>{type}</span>
-                </span>
-              ))}
-            </Space>
-          </Col>
-          {/* 关系 = 线条样式 */}
-          <Col>
-            <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 4 }}>━ 关系（线条）</div>
-            <Space>
-              {[
-                { name: 'calls', label: '调用', dash: '—' },
-                { name: 'depends_on', label: '依赖', dash: '┄┄' },
-                { name: 'runs_on', label: '运行于', dash: '┈┈' },
-                { name: 'includes', label: '包含', dash: '┅┅' },
-                { name: 'connected_to', label: '连接', dash: '···' },
-              ].map(({ label, dash }) => (
-                <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 13, color: '#595959', letterSpacing: -1 }}>{dash}</span>
-                  <span style={{ fontSize: 12 }}>{label}</span>
-                </span>
-              ))}
-            </Space>
-          </Col>
-        </Row>
-      </Card>
+      {/* 图例（紧凑一行） */}
+      <div style={{ marginTop: 12, padding: '6px 12px', background: '#fafbfc', borderRadius: 6, display: 'flex', gap: 24, fontSize: 11, color: '#8c8c8c', flexWrap: 'wrap' }}>
+        <span>
+          <strong>外环</strong> = 健康度：
+          {Object.entries(healthColors).map(([l, c]) => (
+            <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginLeft: 6 }}>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', border: `2px solid ${c}`, display: 'inline-block' }} />
+              {l}
+            </span>
+          ))}
+        </span>
+        <span>
+          <strong>扇形</strong> = 错误率：
+          <span style={{ marginLeft: 4 }}>🟢低</span>
+          <span style={{ marginLeft: 4 }}>🟡中</span>
+          <span style={{ marginLeft: 4 }}>🔴高</span>
+        </span>
+        <span>
+          <strong>图标</strong> = 类型：
+          {Object.entries(typeIconChars).filter(([k]) => ['Service','Host','MySQL','Redis','Business','NetworkDevice'].includes(k)).map(([k, v]) => (
+            <span key={k} style={{ marginLeft: 6 }}>{v}{k}</span>
+          ))}
+        </span>
+        <span>
+          <strong>线条</strong> = 关系：—调用 ┄依赖 ┈运行于 ·连接
+        </span>
+      </div>
 
       {/* 详情抽屉 */}
       <Drawer
