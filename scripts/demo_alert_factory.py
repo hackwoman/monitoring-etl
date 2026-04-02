@@ -36,7 +36,7 @@ ONLINE_PAY = "在线支付"
 
 def inject_metrics():
     """注入 ClickHouse 指标数据，模拟 db-master CPU 异常曲线。"""
-    print("📊 注入指标数据...")
+    print("📊 注入指标数据（模拟日志量曲线）...")
 
     now = datetime.now()
     rows = []
@@ -55,21 +55,14 @@ def inject_metrics():
             cpu = 50 + (t % 10)
         cpu = min(99, max(30, cpu))
 
-        # MySQL 连接使用率 (db-master 异常时升高)
-        if 20 < t < 55:
-            conn = 70 + (t - 20) * 0.8
-        else:
-            conn = 45 + (t % 10)
-        conn = min(98, max(30, conn))
-
-        # Service P99 延迟 (DB 异常时飙升)
+        # P99 延迟 (DB 异常时飙升)
         if 25 < t < 50:
             p99 = 800 + (t - 25) * 80
         else:
             p99 = 100 + (t % 30)
         p99 = min(3000, max(50, p99))
 
-        # Gateway 错误率 (order-service 异常时升高)
+        # 错误率
         if 30 < t < 48:
             err_rate = 2 + (t - 30) * 0.5
         else:
@@ -77,20 +70,32 @@ def inject_metrics():
         err_rate = min(15, max(0, err_rate))
 
         ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
-        rows.extend([
-            f"('{DB_MASTER}', 'system.cpu.usage', {cpu:.1f}, '{ts_str}')",
-            f"('{DB_MASTER}', 'system.memory.usage', {min(95, 60 + t * 0.2):.1f}, '{ts_str}')",
-            f"('{ORDER_DB}', 'mysql.connections.usage_rate', {conn:.1f}, '{ts_str}')",
-            f"('{ORDER_SVC}', 'http.server.request.duration.p99', {p99:.1f}, '{ts_str}')",
-            f"('{ORDER_SVC}', 'http.server.request.error_rate', {err_rate:.1f}, '{ts_str}')",
-            f"('{GATEWAY}', 'http.server.request.error_rate', {err_rate * 0.8:.1f}, '{ts_str}')",
-        ])
 
-    # 批量写入 (每 200 行一批)
-    for i in range(0, len(rows), 200):
-        batch = rows[i:i + 200]
+        # 模拟 db-master 的日志（host_name）
+        level = "error" if err_rate > 3 else "info"
+        rows.append(
+            f"('{ts_str}', '{DB_MASTER}', '{DB_MASTER}', 'system', '{level}', "
+            f"'CPU usage: {cpu:.1f}%', '')"
+        )
+
+        # 模拟 order-service 的日志
+        svc_level = "error" if err_rate > 2 else "info"
+        rows.append(
+            f"('{ts_str}', '{ORDER_SVC}', 'app-01', 'order-service', '{svc_level}', "
+            f"'request processed p99={p99:.0f}ms', '')"
+        )
+
+        # 模拟 gateway 的日志
+        rows.append(
+            f"('{ts_str}', '{GATEWAY}', 'web-01', 'gateway', '{svc_level}', "
+            f"'proxy request p99={p99 * 0.8:.0f}ms', '')"
+        )
+
+    # 批量写入 logs.log_entries (每 300 行一批)
+    for i in range(0, len(rows), 300):
+        batch = rows[i:i + 300]
         sql = f"""
-        INSERT INTO metrics.points (entity_name, metric_name, value, timestamp)
+        INSERT INTO logs.log_entries (timestamp, host_name, service_name, source, level, message, body)
         VALUES {','.join(batch)}
         """
         try:
@@ -101,7 +106,7 @@ def inject_metrics():
         except Exception as e:
             print(f"  ⚠️ 写入异常: {e}")
 
-    print(f"  ✅ 注入 {len(rows)} 条指标数据")
+    print(f"  ✅ 注入 {len(rows)} 条日志数据")
 
 
 def inject_alerts():

@@ -391,7 +391,6 @@ async def ingest_alerts(
                 existing.ends_at = datetime.utcnow()
         elif status == "firing":
             alert = AlertInstance(
-                rule_id="00000000-0000-0000-0000-000000000000",
                 entity_guid=entity_guid,
                 entity_name=entity_name,
                 entity_type=entity_type,
