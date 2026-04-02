@@ -219,7 +219,8 @@ def upsert_alert_instance(pg, alert: dict, entity_guid: str, entity_name: str, e
                 firing_map = {}
                 for fa in load_firing_alerts(pg):
                     if fa.get("entity_guid"):
-                        firing_map[str(fa["entity_guid"])] = str(fa.get("group_id", fa["alert_id"]))
+                        gid = fa.get("group_id")
+                        firing_map[str(fa["entity_guid"])] = str(gid) if gid else str(fa["alert_id"])
                 group_id = find_group_id(entity_guid, firing_map, relationships) if entity_guid else None
 
                 cur.execute("""
@@ -236,7 +237,7 @@ def upsert_alert_instance(pg, alert: dict, entity_guid: str, entity_name: str, e
                     alert.get("summary", ""),
                     fingerprint,
                     record_id,
-                    group_id,
+                    str(group_id) if group_id else None,
                 ))
                 logger.info(f"  🔴 新告警: {entity_name} — {alert.get('title', '')}")
 
@@ -327,7 +328,8 @@ def run_evaluation():
                         firing_map = {}
                         for fa in load_firing_alerts(pg):
                             if fa.get("entity_guid"):
-                                firing_map[str(fa["entity_guid"])] = str(fa.get("group_id", fa["alert_id"]))
+                                gid = fa.get("group_id")
+                                firing_map[str(fa["entity_guid"])] = str(gid) if gid else str(fa["alert_id"])
                         group_id = find_group_id(str(entity["guid"]), firing_map, relationships)
 
                         cur.execute("""
