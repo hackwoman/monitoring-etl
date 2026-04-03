@@ -5,6 +5,7 @@ import {
   FileTextOutlined, DatabaseOutlined, DashboardOutlined,
   ClusterOutlined, MessageOutlined, AlertOutlined,
   ApiOutlined, DesktopOutlined, CloudServerOutlined,
+  EyeOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import LogsPage from './pages/Logs';
 import CmdbPage from './pages/Cmdb';
@@ -15,6 +16,8 @@ import AlertsPage from './pages/Alerts';
 import ServiceAnalysis from './pages/ServiceAnalysis';
 import HostAnalysis from './pages/HostAnalysis';
 import NetworkAnalysis from './pages/NetworkAnalysis';
+import PageAnalysis from './pages/PageAnalysis';
+import HttpRequestAnalysis from './pages/HttpRequestAnalysis';
 import { TimeRangeProvider } from './components/TimeRangeContext';
 
 const { Header, Content, Sider } = Layout;
@@ -34,6 +37,8 @@ const App: React.FC = () => (
             style={{ height: '100%' }}
             items={[
               { key: 'overview', icon: <DashboardOutlined />, label: <Link to="/">总览</Link> },
+              { key: 'page', icon: <EyeOutlined />, label: <Link to="/page-analysis">页面分析</Link> },
+              { key: 'http', icon: <ThunderboltOutlined />, label: <Link to="/http-request-analysis">网络请求</Link> },
               { key: 'service', icon: <ApiOutlined />, label: <Link to="/service-analysis">服务分析</Link> },
               { key: 'host', icon: <DesktopOutlined />, label: <Link to="/host-analysis">主机分析</Link> },
               { key: 'network', icon: <CloudServerOutlined />, label: <Link to="/network-analysis">网络分析</Link> },
@@ -48,6 +53,8 @@ const App: React.FC = () => (
         <Content style={{ padding: 24 }}>
           <Routes>
             <Route path="/" element={<OverviewPage />} />
+            <Route path="/page-analysis" element={<PageAnalysis />} />
+            <Route path="/http-request-analysis" element={<HttpRequestAnalysis />} />
             <Route path="/service-analysis" element={<ServiceAnalysis />} />
             <Route path="/host-analysis" element={<HostAnalysis />} />
             <Route path="/network-analysis" element={<NetworkAnalysis />} />
