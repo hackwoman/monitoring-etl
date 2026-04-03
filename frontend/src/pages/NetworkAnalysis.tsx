@@ -4,6 +4,7 @@ import { CloudServerOutlined, CheckCircleOutlined, WarningOutlined, FireOutlined
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import EntityDetailDrawer, { DrawerEntity as Entity } from '../components/EntityDetailDrawer';
+import { TimeRangeBar, useTimeRange } from '../components/TimeRangeContext';
 
 const CMDB = '/api/v1/cmdb';
 
@@ -77,6 +78,7 @@ const NetworkAnalysis: React.FC = () => {
 
   return (
     <div>
+      <TimeRangeBar />
       <h2 style={{ marginBottom: 16 }}><CloudServerOutlined style={{ marginRight: 8 }} />网络分析</h2>
 
       {stats && (

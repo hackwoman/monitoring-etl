@@ -7,6 +7,7 @@ import {
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import EntityDetailDrawer, { DrawerEntity as Entity } from '../components/EntityDetailDrawer';
+import { TimeRangeBar, useTimeRange } from '../components/TimeRangeContext';
 
 const CMDB = '/api/v1/cmdb';
 const API = '/api/v1';
@@ -104,6 +105,7 @@ const ServiceAnalysis: React.FC = () => {
 
   return (
     <div>
+      <TimeRangeBar />
       <h2 style={{ marginBottom: 16 }}><ApiOutlined style={{ marginRight: 8 }} />服务分析</h2>
 
       {/* 汇总卡片 */}

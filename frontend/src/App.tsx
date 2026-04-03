@@ -15,10 +15,12 @@ import AlertsPage from './pages/Alerts';
 import ServiceAnalysis from './pages/ServiceAnalysis';
 import HostAnalysis from './pages/HostAnalysis';
 import NetworkAnalysis from './pages/NetworkAnalysis';
+import { TimeRangeProvider } from './components/TimeRangeContext';
 
 const { Header, Content, Sider } = Layout;
 
 const App: React.FC = () => (
+  <TimeRangeProvider>
   <BrowserRouter>
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ color: '#fff', fontSize: 20, fontWeight: 'bold' }}>
@@ -59,6 +61,7 @@ const App: React.FC = () => (
       </Layout>
     </Layout>
   </BrowserRouter>
+  </TimeRangeProvider>
 );
 
 export default App;

@@ -4,6 +4,7 @@ import { DesktopOutlined, CheckCircleOutlined, WarningOutlined, FireOutlined } f
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import EntityDetailDrawer, { DrawerEntity as Entity } from '../components/EntityDetailDrawer';
+import { TimeRangeBar, useTimeRange } from '../components/TimeRangeContext';
 
 const CMDB = '/api/v1/cmdb';
 
@@ -76,6 +77,7 @@ const HostAnalysis: React.FC = () => {
 
   return (
     <div>
+      <TimeRangeBar />
       <h2 style={{ marginBottom: 16 }}><DesktopOutlined style={{ marginRight: 8 }} />主机分析</h2>
 
       {stats && (
