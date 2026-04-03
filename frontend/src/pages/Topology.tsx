@@ -7,6 +7,7 @@ import {
   FileTextOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import axios from 'axios';
+import { TimeRangeBar } from '../components/TimeRangeContext';
 
 const API = '/api/v1/cmdb';
 
@@ -671,6 +672,7 @@ const TopologyPage: React.FC = () => {
   // ============================================================
   return (
     <div>
+      <TimeRangeBar />
       <h2 style={{ marginBottom: 16 }}>
         <ApartmentOutlined style={{ marginRight: 8 }} />
         资源拓扑

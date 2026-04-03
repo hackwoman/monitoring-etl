@@ -7,6 +7,7 @@ import {
   AlertOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
   ClockCircleOutlined, StopOutlined,
 } from '@ant-design/icons';
+import { TimeRangeBar } from '../components/TimeRangeContext';
 
 const { Title, Text } = Typography;
 const API = '/api/v1';
@@ -230,6 +231,7 @@ const AlertsPage: React.FC = () => {
   return (
     <div>
       <Title level={4}><AlertOutlined /> 统一告警中心</Title>
+      <TimeRangeBar />
 
       {/* 统计卡片 */}
       {stats && (
