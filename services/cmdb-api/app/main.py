@@ -26,7 +26,7 @@ app.include_router(heartbeat.router, prefix="/api/v1/cmdb", tags=["heartbeat"])
 app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
 app.include_router(alerts.router, prefix="/api/v1", tags=["alerts"])
 app.include_router(records.router, prefix="/api/v1", tags=["records"])
-app.include_router(stats.router, prefix="/api/v1", tags=["stats"]
+app.include_router(stats.router, prefix="/api/v1", tags=["stats"])
 
 
 @app.on_event("startup")
