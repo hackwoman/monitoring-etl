@@ -6,7 +6,7 @@ import {
   ClusterOutlined, MessageOutlined, AlertOutlined,
   ApiOutlined, DesktopOutlined, CloudServerOutlined,
   EyeOutlined, ThunderboltOutlined, MonitorOutlined,
-  TagOutlined,
+  TagOutlined, ToolOutlined,
 } from '@ant-design/icons';
 import LogsPage from './pages/Logs';
 import CmdbPage from './pages/Cmdb';
@@ -20,6 +20,7 @@ import NetworkAnalysis from './pages/NetworkAnalysis';
 import PageAnalysis from './pages/PageAnalysis';
 import HttpRequestAnalysis from './pages/HttpRequestAnalysis';
 import BizMappingPage from './pages/BizMapping';
+import EtlPage from './pages/Etl';
 import { TimeRangeProvider } from './components/TimeRangeContext';
 
 const { Header, Content, Sider } = Layout;
@@ -54,6 +55,7 @@ const App: React.FC = () => (
               { key: 'alerts', icon: <AlertOutlined />, label: <Link to="/alerts">告警</Link> },
               { key: 'cmdb', icon: <DatabaseOutlined />, label: <Link to="/cmdb">CMDB</Link> },
               { key: 'biz-mapping', icon: <TagOutlined />, label: <Link to="/biz-mapping">业务映射</Link> },
+              { key: 'etl', icon: <ToolOutlined />, label: <Link to="/etl">智能ETL</Link> },
               { key: 'logs', icon: <FileTextOutlined />, label: <Link to="/logs">日志</Link> },
               { key: 'chat', icon: <MessageOutlined />, label: <Link to="/chat">问答</Link> },
             ]}
@@ -71,6 +73,7 @@ const App: React.FC = () => (
             <Route path="/alerts" element={<AlertsPage />} />
             <Route path="/cmdb" element={<CmdbPage />} />
             <Route path="/biz-mapping" element={<BizMappingPage />} />
+            <Route path="/etl" element={<EtlPage />} />
             <Route path="/logs" element={<LogsPage />} />
             <Route path="/chat" element={<ChatPage />} />
           </Routes>

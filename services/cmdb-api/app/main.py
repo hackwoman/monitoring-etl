@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import entities, types, health, overview, discover, heartbeat, chat, alerts, records, stats, business_mapping
+from app.routers import entities, types, health, overview, discover, heartbeat, chat, alerts, records, stats, business_mapping, etl
 from app.database import init_db
 
 app = FastAPI(
@@ -28,6 +28,7 @@ app.include_router(alerts.router, prefix="/api/v1", tags=["alerts"])
 app.include_router(records.router, prefix="/api/v1", tags=["records"])
 app.include_router(stats.router, prefix="/api/v1", tags=["stats"])
 app.include_router(business_mapping.router, tags=["business-mapping"])
+app.include_router(etl.router, tags=["etl"])
 
 
 @app.on_event("startup")
