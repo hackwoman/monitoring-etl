@@ -58,12 +58,16 @@ const NetworkAnalysis: React.FC = () => {
     if (path) navigate(`${path}?name=${info.name}`);
   };
 
+  // 着色辅助
+  const colorVal = (v: any, w: number, c: number) => Number(v) >= c ? '#ff4d4f' : Number(v) >= w ? '#faad14' : '#52c41a';
+  const attr = (e: Entity, k: string, d: any = '-') => e.attributes?.[k] !== undefined ? e.attributes[k] : d;
+
   const columns = [
-    { title: '设备名', dataIndex: 'name', sorter: (a: Entity, b: Entity) => a.name.localeCompare(b.name), render: (v: string) => <span style={{ fontWeight: 600 }}>{v}</span> },
-    { title: '厂商', key: 'vendor', render: (_: any, r: Entity) => r.attributes?.vendor || '-' },
-    { title: '型号', key: 'model', render: (_: any, r: Entity) => r.attributes?.model || '-' },
-    { title: '管理IP', key: 'mgmt_ip', render: (_: any, r: Entity) => r.attributes?.mgmt_ip || '-' },
-    { title: '健康度', dataIndex: 'health_score', sorter: (a: Entity, b: Entity) => (a.health_score || 0) - (b.health_score || 0),
+    { title: '设备名', dataIndex: 'name', width: 160, sorter: (a: Entity, b: Entity) => a.name.localeCompare(b.name), render: (v: string) => <span style={{ fontWeight: 600 }}>{v}</span> },
+    { title: '厂商', key: 'vendor', width: 70, render: (_: any, r: Entity) => attr(r, 'vendor') },
+    { title: '型号', key: 'model', width: 60, render: (_: any, r: Entity) => attr(r, 'model') },
+    { title: '管理IP', key: 'mgmt_ip', width: 120, render: (_: any, r: Entity) => <code>{attr(r, 'mgmt_ip')}</code> },
+    { title: '健康度', dataIndex: 'health_score', width: 110, sorter: (a: Entity, b: Entity) => (a.health_score || 0) - (b.health_score || 0),
       render: (_: any, r: Entity) => (
         <Space>
           <span style={{ color: healthColors[r.health_level], fontWeight: 600 }}>{r.health_score ?? '?'}</span>
@@ -71,15 +75,79 @@ const NetworkAnalysis: React.FC = () => {
         </Space>
       )
     },
-    { title: '标签', dataIndex: 'labels', render: (labels: Record<string, string>) => (
-      <Space wrap>{Object.entries(labels || {}).map(([k, v]) => <Tag key={k}>{k}:{v}</Tag>)}</Space>
-    )},
+    { title: '丢包率', key: 'pkt_loss', width: 80,
+      render: (_: any, r: Entity) => {
+        const v = attr(r, 'packet_loss', 0);
+        return <span style={{ color: colorVal(v, 0.1, 1), fontWeight: 600 }}>{v}%</span>;
+      }
+    },
+    { title: '延迟', key: 'latency', width: 70,
+      render: (_: any, r: Entity) => {
+        const v = attr(r, 'latency_ms', 0);
+        return <span style={{ color: colorVal(v, 10, 50) }}>{v}ms</span>;
+      }
+    },
+    { title: '新建连接/s', key: 'tcp_new', width: 90,
+      render: (_: any, r: Entity) => {
+        const v = attr(r, 'tcp_new_connections_rate', 0);
+        return <span style={{ color: colorVal(v, 1000, 5000), fontWeight: 600 }}>{v}</span>;
+      }
+    },
+    { title: '活跃连接', key: 'tcp_est', width: 80,
+      render: (_: any, r: Entity) => {
+        const v = attr(r, 'tcp_established_count', 0);
+        return <span style={{ color: colorVal(v, 10000, 50000) }}>{v}</span>;
+      }
+    },
+    { title: 'TIME_WAIT', key: 'tcp_tw', width: 90,
+      render: (_: any, r: Entity) => {
+        const v = attr(r, 'tcp_time_wait_count', 0);
+        return <span style={{ color: colorVal(v, 5000, 20000) }}>{v}</span>;
+      }
+    },
+    { title: '重传率', key: 'retransmit', width: 80,
+      render: (_: any, r: Entity) => {
+        const v = attr(r, 'tcp_retransmit_rate', 0);
+        return <span style={{ color: colorVal(v, 1, 5), fontWeight: 600 }}>{v}%</span>;
+      }
+    },
+    { title: '带宽利用率', key: 'bw', width: 90,
+      render: (_: any, r: Entity) => {
+        const v = attr(r, 'bandwidth_utilization', 0);
+        return <span style={{ color: colorVal(v, 70, 90) }}>{v}%</span>;
+      }
+    },
+    { title: '设备CPU', key: 'cpu', width: 80,
+      render: (_: any, r: Entity) => {
+        const v = attr(r, 'device_cpu', 0);
+        return <span style={{ color: colorVal(v, 70, 90) }}>{v}%</span>;
+      }
+    },
+    { title: '设备内存', key: 'mem', width: 80,
+      render: (_: any, r: Entity) => {
+        const v = attr(r, 'device_memory', 0);
+        return <span style={{ color: colorVal(v, 80, 95) }}>{v}%</span>;
+      }
+    },
+    { title: '端口', key: 'ports', width: 70,
+      render: (_: any, r: Entity) => {
+        const up = attr(r, 'port_status_up', 0);
+        const down = attr(r, 'port_status_down', 0);
+        return <span>{up}<span style={{ color: '#52c41a' }}>↑</span> {down}<span style={{ color: '#ff4d4f' }}>↓</span></span>;
+      }
+    },
   ];
 
   return (
     <div>
       <TimeRangeBar onQuery={() => fetchData()} />
       <h2 style={{ marginBottom: 16 }}><CloudServerOutlined style={{ marginRight: 8 }} />网络分析</h2>
+
+      {/* TCP 动态感知说明 */}
+      <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f6f8fa', borderRadius: 6, fontSize: 12, color: '#595959' }}>
+        <strong>TCP 动态感知：</strong>新建连接/s 反映业务流量变化，TIME_WAIT 过高表示短连接风暴，重传率异常指向网络质量问题。
+        设备 CPU/内存直接影响转发性能。端口状态变化可快速定位物理层故障。
+      </div>
 
       {stats && (
         <Row gutter={12} style={{ marginBottom: 16 }}>
@@ -96,6 +164,7 @@ const NetworkAnalysis: React.FC = () => {
         entities.length === 0 ? <Empty /> :
         <Table rowKey="guid" dataSource={entities} columns={columns} size="small" pagination={{ pageSize: 20 }}
           onRow={(record) => ({ onClick: () => handleRowClick(record), style: { cursor: 'pointer' } })}
+          scroll={{ x: 1400 }}
         />
       }
 
