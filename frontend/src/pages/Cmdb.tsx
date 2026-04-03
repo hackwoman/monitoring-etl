@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Tag, Button, Modal, Form, Input, Select, Space, Card, Row, Col, Statistic, Empty } from 'antd';
-import { PlusOutlined, DatabaseOutlined, ApiOutlined, DesktopOutlined, CloudServerOutlined, ApartmentOutlined } from '@ant-design/icons';
+import { Table, Tag, Button, Modal, Form, Input, Select, Space, Card, Row, Col, Statistic, Empty, Tabs, Descriptions, Divider, Spin } from 'antd';
+import { PlusOutlined, DatabaseOutlined, ApiOutlined, DesktopOutlined, CloudServerOutlined, ApartmentOutlined, WarningOutlined } from '@ant-design/icons';
 import axios from 'axios';
 
 const API_BASE = '/api/v1/cmdb';
@@ -33,6 +33,7 @@ const CmdbPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [form] = Form.useForm();
+  const [typeDef, setTypeDef] = useState<any>(null);
 
   // 加载所有类型的数量
   useEffect(() => {
@@ -50,14 +51,19 @@ const CmdbPage: React.FC = () => {
     fetchCounts();
   }, []);
 
-  // 加载选中类型的实体
+  // 加载选中类型的实体 + 类型定义
   useEffect(() => {
     if (!selectedType) return;
+    setTypeDef(null);
     const fetch = async () => {
       setLoading(true);
       try {
-        const res = await axios.get(`${API_BASE}/entities`, { params: { type_name: selectedType, limit: 200 } });
-        setEntities(res.data.items || []);
+        const [entRes, defRes] = await Promise.all([
+          axios.get(`${API_BASE}/entities`, { params: { type_name: selectedType, limit: 200 } }),
+          axios.get(`${API_BASE}/type-schema/${selectedType}`).catch(() => ({ data: null }))
+        ]);
+        setEntities(entRes.data.items || []);
+        setTypeDef(defRes.data);
       } catch (e) { console.error(e); }
       setLoading(false);
     };
@@ -140,7 +146,7 @@ const CmdbPage: React.FC = () => {
           ))}
         </div>
       ) : (
-        // 第二级：实体列表
+        // 第二级：类型定义 + 实体列表
         <div>
           <Space style={{ marginBottom: 12 }}>
             <a onClick={() => setSelectedType(null)} style={{ fontSize: 12 }}>← 返回分类</a>
@@ -148,21 +154,26 @@ const CmdbPage: React.FC = () => {
             <Tag color={ENTITY_TYPES.find(t => t.type === selectedType)?.color}>
               {ENTITY_TYPES.find(t => t.type === selectedType)?.display || selectedType}
             </Tag>
-            <span style={{ color: '#8c8c8c', fontSize: 12 }}>{entities.length} 个实体</span>
             <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => {
               form.setFieldsValue({ type_name: selectedType });
               setModalOpen(true);
-            }}>新建</Button>
+            }}>新建实体</Button>
           </Space>
 
-          <Table
-            columns={columns}
-            dataSource={entities}
-            rowKey="guid"
-            loading={loading}
-            size="small"
-            pagination={{ pageSize: 50 }}
-          />
+          <Tabs items={[
+            {
+              key: 'definition',
+              label: '📐 指标体系',
+              children: typeDef ? <TypeDefView def={typeDef} /> : <Spin style={{ display: 'block', margin: '40px auto' }} />
+            },
+            {
+              key: 'entities',
+              label: `📋 实体列表 (${entities.length})`,
+              children: (
+                <Table columns={columns} dataSource={entities} rowKey="guid" loading={loading} size="small" pagination={{ pageSize: 50 }} />
+              )
+            }
+          ]} />
         </div>
       )}
 
@@ -181,6 +192,128 @@ const CmdbPage: React.FC = () => {
       </Modal>
     </div>
   );
+};
+
+// 指标体系展示组件
+const TypeDefView: React.FC<{ def: any }> = ({ def }) => {
+  const attrs = def.attributes || [];
+  const metrics = def.metrics || [];
+  const relations = def.relations || [];
+  const health = def.health_model || {};
+
+  // 按 category 分组指标
+  const metricsByCategory: Record<string, any[]> = {};
+  metrics.forEach((m: any) => {
+    const cat = m.category || 'other';
+    (metricsByCategory[cat] ||= []).push(m);
+  });
+
+  return (
+    <div>
+      {/* 基本信息 */}
+      <Descriptions size="small" column={3} bordered style={{ marginBottom: 16 }}>
+        <Descriptions.Item label="类型名">{def.type_name}</Descriptions.Item>
+        <Descriptions.Item label="显示名">{def.display_name}</Descriptions.Item>
+        <Descriptions.Item label="分类">{def.category}</Descriptions.Item>
+      </Descriptions>
+
+      {/* 指标体系 */}
+      {Object.entries(metricsByCategory).map(([cat, items]) => (
+        <div key={cat} style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#262626', marginBottom: 8 }}>
+            {catLabels[cat] || cat} ({items.length})
+          </div>
+          <Table size="small" pagination={false} rowKey="name"
+            dataSource={items}
+            columns={[
+              { title: '指标名', dataIndex: 'name', width: 280, render: (v: string) => <code style={{ fontSize: 11 }}>{v}</code> },
+              { title: '显示名', dataIndex: 'display', width: 120 },
+              { title: '类型', dataIndex: 'type', width: 60 },
+              { title: '单位', dataIndex: 'unit', width: 70 },
+              {
+                title: '阈值', width: 140,
+                render: (_: any, m: any) => {
+                  const t = m.thresholds || {};
+                  if (!t.warn && !t.crit) return '-';
+                  return (
+                    <Space size={4}>
+                      {t.warn && <Tag color="gold">warn: {t.warn}</Tag>}
+                      {t.crit && <Tag color="red">crit: {t.crit}</Tag>}
+                    </Space>
+                  );
+                }
+              }
+            ]}
+          />
+        </div>
+      ))}
+
+      {metrics.length === 0 && <Empty description="暂无指标定义" imageStyle={{ height: 40 }} />}
+
+      {/* 属性定义 */}
+      {attrs.length > 0 && (
+        <>
+          <Divider orientation="left" plain>属性定义</Divider>
+          <Table size="small" pagination={false} rowKey="key"
+            dataSource={attrs}
+            columns={[
+              { title: 'Key', dataIndex: 'key', width: 160, render: (v: string) => <code>{v}</code> },
+              { title: '名称', dataIndex: 'name', width: 120 },
+              { title: '类型', dataIndex: 'type', width: 60 },
+              { title: '必填', dataIndex: 'required', width: 50, render: (v: boolean) => v ? <Tag color="red">必填</Tag> : <Tag>可选</Tag> },
+              { title: '默认值', dataIndex: 'default', width: 80, render: (v: any) => v !== undefined ? String(v) : '-' },
+              { title: '说明', dataIndex: 'description' },
+            ]}
+          />
+        </>
+      )}
+
+      {/* 关系 */}
+      {relations.length > 0 && (
+        <>
+          <Divider orientation="left" plain>关系定义</Divider>
+          <Space wrap>
+            {relations.map((r: any, i: number) => (
+              <Tag key={i} color={r.direction === 'out' ? 'blue' : 'green'}>
+                {r.direction === 'out' ? '→' : '←'} {r.type} ({r.target})
+              </Tag>
+            ))}
+          </Space>
+        </>
+      )}
+
+      {/* 健康模型 */}
+      {health.method && (
+        <>
+          <Divider orientation="left" plain>健康度模型</Divider>
+          <Descriptions size="small" column={2} bordered>
+            <Descriptions.Item label="计算方法">{health.method}</Descriptions.Item>
+            <Descriptions.Item label="维度数">{health.dimensions?.length || 0}</Descriptions.Item>
+          </Descriptions>
+          {health.dimensions && (
+            <Table size="small" pagination={false} rowKey="name" style={{ marginTop: 8 }}
+              dataSource={health.dimensions}
+              columns={[
+                { title: '维度', dataIndex: 'name', width: 100 },
+                { title: '指标', dataIndex: 'metric', width: 280, render: (v: string) => <code style={{ fontSize: 11 }}>{v}</code> },
+                { title: '权重', dataIndex: 'weight', width: 60, render: (v: number) => `${(v * 100).toFixed(0)}%` },
+                { title: '分类', dataIndex: 'category', width: 80 },
+              ]}
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+const catLabels: Record<string, string> = {
+  latency: '⏱ 延迟', traffic: '📈 流量', error: '❌ 错误', saturation: '🔥 饱和度',
+  performance: '⚡ 性能', compute: '🖥 计算', memory: '💾 内存', disk: '💿 磁盘',
+  network: '🌐 网络', resource: '📦 资源', connections: '🔗 连接', replication: '🔄 复制',
+  locks: '🔒 锁', quality: '✅ 质量', capacity: '📊 容量', dynamic: '🔄 动态',
+  status: '🚦 状态', business: '💰 业务', stability: '⚖️ 稳定性', interactivity: '👆 交互性',
+  payload: '📦 数据量', other: '📦 其他',
 };
 
 export default CmdbPage;
