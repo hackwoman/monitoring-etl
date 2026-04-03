@@ -77,7 +77,7 @@ const HostAnalysis: React.FC = () => {
 
   return (
     <div>
-      <TimeRangeBar />
+      <TimeRangeBar onQuery={() => fetchData()} />
       <h2 style={{ marginBottom: 16 }}><DesktopOutlined style={{ marginRight: 8 }} />主机分析</h2>
 
       {stats && (

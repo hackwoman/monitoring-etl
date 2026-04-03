@@ -105,7 +105,7 @@ const ServiceAnalysis: React.FC = () => {
 
   return (
     <div>
-      <TimeRangeBar />
+      <TimeRangeBar onQuery={() => fetchData()} />
       <h2 style={{ marginBottom: 16 }}><ApiOutlined style={{ marginRight: 8 }} />服务分析</h2>
 
       {/* 汇总卡片 */}

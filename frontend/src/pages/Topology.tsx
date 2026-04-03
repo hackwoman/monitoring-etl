@@ -672,7 +672,7 @@ const TopologyPage: React.FC = () => {
   // ============================================================
   return (
     <div>
-      <TimeRangeBar />
+      <TimeRangeBar onQuery={() => {}} />
       <h2 style={{ marginBottom: 16 }}>
         <ApartmentOutlined style={{ marginRight: 8 }} />
         资源拓扑

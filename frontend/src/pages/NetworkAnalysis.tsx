@@ -78,7 +78,7 @@ const NetworkAnalysis: React.FC = () => {
 
   return (
     <div>
-      <TimeRangeBar />
+      <TimeRangeBar onQuery={() => fetchData()} />
       <h2 style={{ marginBottom: 16 }}><CloudServerOutlined style={{ marginRight: 8 }} />网络分析</h2>
 
       {stats && (

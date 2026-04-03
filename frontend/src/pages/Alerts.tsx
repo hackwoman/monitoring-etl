@@ -231,7 +231,7 @@ const AlertsPage: React.FC = () => {
   return (
     <div>
       <Title level={4}><AlertOutlined /> 统一告警中心</Title>
-      <TimeRangeBar />
+      <TimeRangeBar onQuery={() => { fetchAlerts(); fetchStats(); }} />
 
       {/* 统计卡片 */}
       {stats && (

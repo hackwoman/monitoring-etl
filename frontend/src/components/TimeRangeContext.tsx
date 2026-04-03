@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
-import { DatePicker, Space } from 'antd';
+import { DatePicker, Space, Button } from 'antd';
 import dayjs, { Dayjs } from 'dayjs';
 
 const { RangePicker } = DatePicker;
@@ -58,19 +58,32 @@ export const TimeRangeProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 };
 
 /** 通用时间选择器组件，可放在任何页面顶部 */
-export const TimeRangeBar: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
+export const TimeRangeBar: React.FC<{ onQuery?: (range: TimeRange) => void; style?: React.CSSProperties }> = ({ onQuery, style }) => {
   const { range, setRange } = useTimeRange();
+  const [pending, setPending] = useState(false);
+  const [staged, setStaged] = useState<TimeRange>(range);
+
+  const handleSelect = (r: TimeRange) => {
+    setStaged(r);
+    setPending(true);
+  };
+
+  const handleQuery = () => {
+    setRange(staged);
+    setPending(false);
+    onQuery?.(staged);
+  };
 
   return (
     <Space style={{ marginBottom: 12, ...style }}>
       <span style={{ color: '#8c8c8c', fontSize: 12 }}>时间范围：</span>
       {presetRanges.map(p => (
         <a key={p.value}
-          onClick={() => setRange(labelToRange(p.value))}
+          onClick={() => handleSelect(labelToRange(p.value))}
           style={{
             padding: '2px 10px', borderRadius: 4, fontSize: 12,
-            background: range.label === p.value ? '#1890ff' : '#f5f5f5',
-            color: range.label === p.value ? '#fff' : '#595959',
+            background: staged.label === p.value ? '#1890ff' : '#f5f5f5',
+            color: staged.label === p.value ? '#fff' : '#595959',
             cursor: 'pointer',
           }}
         >{p.label}</a>
@@ -78,10 +91,10 @@ export const TimeRangeBar: React.FC<{ style?: React.CSSProperties }> = ({ style 
       <RangePicker
         size="small"
         showTime
-        value={range.label === 'custom' ? [dayjs(range.start), dayjs(range.end)] : undefined}
+        value={staged.label === 'custom' ? [dayjs(staged.start), dayjs(staged.end)] : undefined}
         onChange={(dates) => {
           if (dates && dates[0] && dates[1]) {
-            setRange({
+            handleSelect({
               start: dates[0].toISOString(),
               end: dates[1].toISOString(),
               label: 'custom',
@@ -90,6 +103,14 @@ export const TimeRangeBar: React.FC<{ style?: React.CSSProperties }> = ({ style 
         }}
         style={{ width: 280 }}
       />
+      <Button
+        size="small"
+        type="primary"
+        disabled={!pending}
+        onClick={handleQuery}
+        style={{ fontSize: 12 }}
+      >查询</Button>
+      {pending && <span style={{ color: '#faad14', fontSize: 11 }}>⚡ 点击查询应用新时间范围</span>}
     </Space>
   );
 };
