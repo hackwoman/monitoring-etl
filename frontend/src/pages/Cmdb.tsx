@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Tag, Button, Modal, Form, Input, Select, Space, Card, Row, Col, Statistic, Empty, Tabs, Descriptions, Divider, Spin } from 'antd';
 import { PlusOutlined, DatabaseOutlined, ApiOutlined, DesktopOutlined, CloudServerOutlined, ApartmentOutlined, WarningOutlined } from '@ant-design/icons';
+import EntityDetailDrawer from '../components/EntityDetailDrawer';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
 const API_BASE = '/api/v1/cmdb';
@@ -13,6 +15,8 @@ const ENTITY_TYPES = [
   { type: 'Redis', display: 'Redis', category: 'middleware', icon: <DatabaseOutlined />, color: '#eb2f96' },
   { type: 'NetworkDevice', display: '网络设备', category: 'infrastructure', icon: <CloudServerOutlined />, color: '#2f54eb' },
   { type: 'Business', display: '业务服务', category: 'business', icon: <ApartmentOutlined />, color: '#722ed1' },
+  { type: 'Page', display: '前端页面', category: 'frontend', icon: <ApiOutlined />, color: '#13c2c2' },
+  { type: 'HttpRequest', display: '网络请求', category: 'frontend', icon: <ApiOutlined />, color: '#52c41a' },
   { type: 'Database', display: '数据库', category: 'middleware', icon: <DatabaseOutlined />, color: '#fa8c16' },
   { type: 'K8sCluster', display: 'K8s集群', category: 'runtime', icon: <CloudServerOutlined />, color: '#1890ff' },
   { type: 'K8sPod', display: 'K8s Pod', category: 'runtime', icon: <CloudServerOutlined />, color: '#13c2c2' },
@@ -34,6 +38,30 @@ const CmdbPage: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [form] = Form.useForm();
   const [typeDef, setTypeDef] = useState<any>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerEntity, setDrawerEntity] = useState<any>(null);
+  const navigate = useNavigate();
+
+  // 点击实体行 → 打开详情抽屉
+  const handleRowClick = (record: any) => {
+    setDrawerEntity(record);
+    setDrawerOpen(true);
+  };
+
+  // 关系 Tab 点击关联实体 → 跳转分析页
+  const handleEntityClick = (e: { guid: string; type_name: string; name: string }) => {
+    const typeConfig = ENTITY_TYPES.find(t => t.type === e.type_name);
+    if (typeConfig) {
+      setSelectedType(e.type_name);
+      setDrawerOpen(false);
+    }
+  };
+
+  // 自定义行属性
+  const onRow = (record: any) => ({
+    onClick: () => handleRowClick(record),
+    style: { cursor: 'pointer' },
+  });
 
   // 加载所有类型的数量
   useEffect(() => {
@@ -81,13 +109,15 @@ const CmdbPage: React.FC = () => {
     }
   };
 
-  // 按 category 分组
+  // 按 category 分组（业务层在最上面）
   const categories = [
+    { key: 'business', label: '业务层', types: ENTITY_TYPES.filter(t => t.category === 'business') },
     { key: 'application', label: '应用层', types: ENTITY_TYPES.filter(t => t.category === 'application') },
-    { key: 'middleware', label: '中间件层', types: ENTITY_TYPES.filter(t => t.category === 'middleware') },
+    { key: 'component', label: '组件层', types: ENTITY_TYPES.filter(t => t.category === 'middleware') },
+    { key: 'database', label: '数据库层', types: ENTITY_TYPES.filter(t => t.category === 'database') },
     { key: 'infrastructure', label: '基础设施层', types: ENTITY_TYPES.filter(t => t.category === 'infrastructure') },
     { key: 'runtime', label: '运行时层', types: ENTITY_TYPES.filter(t => t.category === 'runtime') },
-    { key: 'business', label: '业务层', types: ENTITY_TYPES.filter(t => t.category === 'business') },
+    { key: 'frontend', label: '前端层', types: ENTITY_TYPES.filter(t => t.category === 'frontend') },
   ].filter(c => c.types.length > 0);
 
   // 实体列表列
@@ -170,7 +200,7 @@ const CmdbPage: React.FC = () => {
               key: 'entities',
               label: `📋 实体列表 (${entities.length})`,
               children: (
-                <Table columns={columns} dataSource={entities} rowKey="guid" loading={loading} size="small" pagination={{ pageSize: 50 }} />
+                <Table columns={columns} dataSource={entities} rowKey="guid" loading={loading} size="small" pagination={{ pageSize: 50 }} onRow={onRow} />
               )
             }
           ]} />
@@ -190,6 +220,13 @@ const CmdbPage: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+
+      <EntityDetailDrawer
+        entity={drawerEntity}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onEntityClick={handleEntityClick}
+      />
     </div>
   );
 };
@@ -199,7 +236,15 @@ const TypeDefView: React.FC<{ def: any }> = ({ def }) => {
   const attrs = def.attributes || [];
   const metrics = def.metrics || [];
   const relations = def.relations || [];
+  const dimensions = def.dimensions || [];
   const health = def.health_model || {};
+
+  // 分组维度
+  const dimsBySource: Record<string, any[]> = {};
+  dimensions.forEach((d: any) => {
+    const src = d.source || 'other';
+    (dimsBySource[src] ||= []).push(d);
+  });
 
   // 按 category 分组指标
   const metricsByCategory: Record<string, any[]> = {};
