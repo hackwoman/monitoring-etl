@@ -5,7 +5,7 @@ import {
   FileTextOutlined, DatabaseOutlined, DashboardOutlined,
   ClusterOutlined, MessageOutlined, AlertOutlined,
   ApiOutlined, DesktopOutlined, CloudServerOutlined,
-  EyeOutlined, ThunderboltOutlined,
+  EyeOutlined, ThunderboltOutlined, MonitorOutlined,
 } from '@ant-design/icons';
 import LogsPage from './pages/Logs';
 import CmdbPage from './pages/Cmdb';
@@ -34,14 +34,20 @@ const App: React.FC = () => (
           <Menu
             mode="inline"
             defaultSelectedKeys={['overview']}
+            defaultOpenKeys={['entity-monitor']}
             style={{ height: '100%' }}
             items={[
               { key: 'overview', icon: <DashboardOutlined />, label: <Link to="/">总览</Link> },
-              { key: 'page', icon: <EyeOutlined />, label: <Link to="/page-analysis">页面分析</Link> },
-              { key: 'http', icon: <ThunderboltOutlined />, label: <Link to="/http-request-analysis">网络请求</Link> },
-              { key: 'service', icon: <ApiOutlined />, label: <Link to="/service-analysis">服务分析</Link> },
-              { key: 'host', icon: <DesktopOutlined />, label: <Link to="/host-analysis">主机分析</Link> },
-              { key: 'network', icon: <CloudServerOutlined />, label: <Link to="/network-analysis">网络分析</Link> },
+              {
+                key: 'entity-monitor', icon: <MonitorOutlined />, label: '实体监控',
+                children: [
+                  { key: 'page', icon: <EyeOutlined />, label: <Link to="/page-analysis">页面分析</Link> },
+                  { key: 'http', icon: <ThunderboltOutlined />, label: <Link to="/http-request-analysis">网络请求</Link> },
+                  { key: 'service', icon: <ApiOutlined />, label: <Link to="/service-analysis">服务分析</Link> },
+                  { key: 'host', icon: <DesktopOutlined />, label: <Link to="/host-analysis">主机分析</Link> },
+                  { key: 'network', icon: <CloudServerOutlined />, label: <Link to="/network-analysis">网络分析</Link> },
+                ],
+              },
               { key: 'topology', icon: <ClusterOutlined />, label: <Link to="/topology">拓扑</Link> },
               { key: 'alerts', icon: <AlertOutlined />, label: <Link to="/alerts">告警</Link> },
               { key: 'cmdb', icon: <DatabaseOutlined />, label: <Link to="/cmdb">CMDB</Link> },
