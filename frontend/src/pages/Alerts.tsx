@@ -1,15 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import {
   Table, Card, Tag, Space, Button, Statistic, Row, Col,
-  Modal, message, Tooltip, Typography, Select,
+  Modal, message, Tooltip, Typography, Select, Form, Input,
+  InputNumber, Switch
 } from 'antd';
 import {
   AlertOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
-  ClockCircleOutlined, StopOutlined,
+  ClockCircleOutlined, StopOutlined, PlusOutlined, EditOutlined,
+  DeleteOutlined, ExperimentOutlined
 } from '@ant-design/icons';
 import { TimeRangeBar } from '../components/TimeRangeContext';
 
 const { Title, Text } = Typography;
+const { TextArea } = Input;
 const API = '/api/v1';
 
 interface AlertItem {
@@ -70,6 +73,14 @@ const AlertsPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [activeTab, setActiveTab] = useState<'alerts' | 'rules'>('alerts');
+  
+  // 规则管理状态
+  const [ruleModalVisible, setRuleModalVisible] = useState(false);
+  const [editingRule, setEditingRule] = useState<AlertRule | null>(null);
+  const [testModalVisible, setTestModalVisible] = useState(false);
+  const [testingRule, setTestingRule] = useState<AlertRule | null>(null);
+  const [form] = Form.useForm();
+  const [testForm] = Form.useForm();
 
   const fetchAlerts = async () => {
     setLoading(true);
@@ -142,6 +153,134 @@ const AlertsPage: React.FC = () => {
       fetchAlerts();
     } catch {
       message.error('静默失败');
+    }
+  };
+
+  // 规则管理函数
+  const openCreateRule = () => {
+    setEditingRule(null);
+    form.resetFields();
+    form.setFieldsValue({
+      condition_type: 'threshold',
+      severity: 'warning',
+      eval_interval: 60,
+      eval_window: 300,
+      for_duration: 0,
+    });
+    setRuleModalVisible(true);
+  };
+
+  const openEditRule = (rule: AlertRule) => {
+    setEditingRule(rule);
+    form.setFieldsValue({
+      rule_name: rule.rule_name,
+      description: rule.description,
+      target_type: rule.target_type,
+      condition_type: rule.condition_type,
+      severity: rule.severity,
+      is_enabled: rule.is_enabled,
+    });
+    setRuleModalVisible(true);
+  };
+
+  const handleSaveRule = async () => {
+    try {
+      const values = await form.validateFields();
+      const url = editingRule 
+        ? `${API}/alerts/rules/${editingRule.rule_id}`
+        : `${API}/alerts/rules`;
+      const method = editingRule ? 'PUT' : 'POST';
+
+      const body = {
+        ...values,
+        condition_expr: values.condition_expr || { metric: 'cpu', op: '>', threshold: 80 }
+      };
+
+      await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      message.success(editingRule ? '规则已更新' : '规则已创建');
+      setRuleModalVisible(false);
+      fetchRules();
+    } catch (e) {
+      message.error('保存失败');
+    }
+  };
+
+  const handleDeleteRule = (rule: AlertRule) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定要删除规则 "${rule.rule_name}" 吗？`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await fetch(`${API}/alerts/rules/${rule.rule_id}`, { method: 'DELETE' });
+          message.success('规则已删除');
+          fetchRules();
+        } catch {
+          message.error('删除失败');
+        }
+      },
+    });
+  };
+
+  const handleToggleRule = async (rule: AlertRule, enabled: boolean) => {
+    try {
+      await fetch(`${API}/alerts/rules/${rule.rule_id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_enabled: enabled }),
+      });
+      message.success(enabled ? '规则已启用' : '规则已禁用');
+      fetchRules();
+    } catch {
+      message.error('操作失败');
+    }
+  };
+
+  const openTestRule = (rule: AlertRule) => {
+    setTestingRule(rule);
+    testForm.resetFields();
+    setTestModalVisible(true);
+  };
+
+  const handleTestRule = async () => {
+    try {
+      const values = await testForm.validateFields();
+      const testData = {
+        rule_id: testingRule?.rule_id,
+        test_data: {
+          metric: values.metric || 'cpu',
+          value: values.value || 90,
+          labels: { instance: 'test-host-01', job: 'node-exporter' }
+        }
+      };
+
+      const res = await fetch(`${API}/alerts/rules/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(testData),
+      });
+      const result = await res.json();
+      
+      Modal.success({
+        title: '测试结果',
+        content: (
+          <div>
+            <p><strong>规则:</strong> {testingRule?.rule_name}</p>
+            <p><strong>测试指标:</strong> {values.metric} = {values.value}</p>
+            <p><strong>触发结果:</strong> {result.triggered ? '✅ 触发' : '❌ 未触发'}</p>
+            {result.message && <p><strong>说明:</strong> {result.message}</p>}
+          </div>
+        ),
+      });
+    } catch {
+      message.error('测试失败');
     }
   };
 
@@ -221,9 +360,25 @@ const AlertsPage: React.FC = () => {
     {
       title: '状态',
       dataIndex: 'is_enabled',
-      width: 80,
-      render: (enabled: boolean) => (
-        <Tag color={enabled ? 'green' : 'default'}>{enabled ? '启用' : '禁用'}</Tag>
+      width: 100,
+      render: (enabled: boolean, record: AlertRule) => (
+        <Switch
+          checked={enabled}
+          onChange={(checked) => handleToggleRule(record, checked)}
+          checkedChildren="启用"
+          unCheckedChildren="禁用"
+        />
+      ),
+    },
+    {
+      title: '操作',
+      width: 200,
+      render: (_: any, record: AlertRule) => (
+        <Space>
+          <Button size="small" icon={<EditOutlined />} onClick={() => openEditRule(record)}>编辑</Button>
+          <Button size="small" icon={<ExperimentOutlined />} onClick={() => openTestRule(record)}>测试</Button>
+          <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDeleteRule(record)}>删除</Button>
+        </Space>
       ),
     },
   ];
@@ -318,14 +473,105 @@ const AlertsPage: React.FC = () => {
           size="small"
         />
       ) : (
-        <Table
-          rowKey="rule_id"
-          columns={ruleColumns}
-          dataSource={rules}
-          pagination={{ pageSize: 20 }}
-          size="small"
-        />
+        <>
+          <div style={{ marginBottom: 16 }}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateRule}>
+              新建规则
+            </Button>
+          </div>
+          <Table
+            rowKey="rule_id"
+            columns={ruleColumns}
+            dataSource={rules}
+            pagination={{ pageSize: 20 }}
+            size="small"
+          />
+        </>
       )}
+
+      {/* 规则编辑/创建弹窗 */}
+      <Modal
+        title={editingRule ? '编辑告警规则' : '新建告警规则'}
+        open={ruleModalVisible}
+        onOk={handleSaveRule}
+        onCancel={() => setRuleModalVisible(false)}
+        width={600}
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item name="rule_name" label="规则名称" rules={[{ required: true, message: '请输入规则名称' }]}>
+            <Input placeholder="例如: CPU 使用率过高" />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <TextArea rows={2} placeholder="规则描述（可选）" />
+          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="condition_type" label="条件类型" rules={[{ required: true }]}>
+                <Select options={[
+                  { label: '阈值 (threshold)', value: 'threshold' },
+                  { label: '变化率 (rate)', value: 'rate' },
+                  { label: '异常检测 (anomaly)', value: 'anomaly' },
+                ]} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="target_type" label="目标实体类型">
+                <Select allowClear placeholder="全部" options={[
+                  { label: 'Host', value: 'Host' },
+                  { label: 'Service', value: 'Service' },
+                  { label: 'Database', value: 'Database' },
+                  { label: 'Redis', value: 'Redis' },
+                ]} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="severity" label="严重度" rules={[{ required: true }]}>
+                <Select options={[
+                  { label: 'Critical', value: 'critical' },
+                  { label: 'Error', value: 'error' },
+                  { label: 'Warning', value: 'warning' },
+                  { label: 'Info', value: 'info' },
+                ]} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="eval_interval" label="评估间隔（秒）">
+                <InputNumber min={10} max={3600} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="is_enabled" label="启用" valuePropName="checked">
+            <Switch checkedChildren="启用" unCheckedChildren="禁用" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 规则测试弹窗 */}
+      <Modal
+        title={`测试规则: ${testingRule?.rule_name}`}
+        open={testModalVisible}
+        onOk={handleTestRule}
+        onCancel={() => setTestModalVisible(false)}
+        okText="执行测试"
+      >
+        <Form form={testForm} layout="vertical">
+          <Form.Item name="metric" label="测试指标" initialValue="cpu">
+            <Select options={[
+              { label: 'CPU 使用率', value: 'cpu' },
+              { label: '内存使用率', value: 'memory' },
+              { label: '磁盘使用率', value: 'disk' },
+              { label: 'HTTP 延迟 P99', value: 'http.latency.p99' },
+              { label: '错误率', value: 'error_rate' },
+            ]} />
+          </Form.Item>
+          <Form.Item name="value" label="测试值" initialValue={90}>
+            <InputNumber min={0} max={10000} style={{ width: '100%' }} />
+          </Form.Item>
+          <Text type="secondary">输入测试数据，预览规则是否触发</Text>
+        </Form>
+      </Modal>
     </div>
   );
 };

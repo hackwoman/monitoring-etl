@@ -455,6 +455,46 @@ def _match_entity(labels: dict, entity_by_name: dict, entity_by_ip: dict, entiti
 
 
 # ============================================================
+# 规则测试
+# ============================================================
+
+class RuleTestRequest(BaseModel):
+    test_data: dict
+
+@router.post("/alerts/rules/test")
+async def test_alert_rule(
+    body: RuleTestRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """测试告警规则是否触发。"""
+    test_data = body.test_data
+    metric = test_data.get('metric', 'cpu')
+    value = test_data.get('value', 0)
+    
+    # 简单阈值测试逻辑
+    thresholds = {
+        'cpu': {'warn': 70, 'crit': 90},
+        'memory': {'warn': 80, 'crit': 95},
+        'disk': {'warn': 80, 'crit': 90},
+        'http.latency.p99': {'warn': 500, 'crit': 2000},
+        'error_rate': {'warn': 1, 'crit': 5},
+    }
+    
+    threshold = thresholds.get(metric, {'warn': 70, 'crit': 90})
+    triggered = value >= threshold['warn']
+    severity = 'critical' if value >= threshold['crit'] else 'warning' if triggered else 'normal'
+    
+    return {
+        "triggered": triggered,
+        "severity": severity,
+        "metric": metric,
+        "value": value,
+        "threshold": threshold,
+        "message": f"指标 {metric} = {value}，{'触发' if triggered else '未触发'}告警"
+    }
+
+
+# ============================================================
 # 实体关联告警
 # ============================================================
 
