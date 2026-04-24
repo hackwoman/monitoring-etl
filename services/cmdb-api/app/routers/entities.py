@@ -450,7 +450,19 @@ async def update_entity(
     if not entity:
         raise HTTPException(404, "Entity not found")
 
+    # 属性校验（如果更新了 attributes）
     update_data = body.model_dump(exclude_unset=True)
+    if "attributes" in update_data:
+        type_def = await session.get(EntityTypeDef, entity.type_name)
+        if type_def and type_def.definition:
+            attr_defs = type_def.definition.get("attributes", [])
+            if attr_defs:
+                # 合并现有属性和更新属性进行校验
+                merged_attrs = {**(entity.attributes or {}), **update_data["attributes"]}
+                errors = _validate_attributes(merged_attrs, attr_defs)
+                if errors:
+                    raise HTTPException(422, detail={"message": "属性校验失败", "errors": errors})
+
     for key, value in update_data.items():
         setattr(entity, key, value)
 
@@ -616,5 +628,243 @@ async def enrich_entity(
             result["cmdb"] = _entity_to_dict(entity)
 
     return result
+
+# ---- 拓扑下钻 ----
+
+@router.get("/entities/{entity_id}/drill-down")
+async def get_entity_drill_down(
+    entity_id: str,
+    max_depth: int = Query(3, ge=1, le=5, description="最大展开深度"),
+    session: AsyncSession = Depends(get_session),
+):
+    """获取实体的纵向下钻拓扑 — 沿 runs_on / depends_on / includes 向下展开。
+
+    返回该实体的完整归属树，包含每个节点的健康度和关键指标。
+    """
+    try:
+        eid = uuid.UUID(entity_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid UUID")
+
+    entity = await session.get(Entity, eid)
+    if not entity:
+        raise HTTPException(404, "Entity not found")
+
+    visited = set()
+
+    async def _expand(guid: uuid.UUID, depth: int):
+        if depth > max_depth or guid in visited:
+            return None
+        visited.add(guid)
+
+        e = await session.get(Entity, guid)
+        if not e:
+            return None
+
+        # 获取类型定义
+        type_def = await session.get(EntityTypeDef, e.type_name)
+        definition = type_def.definition if type_def else {}
+
+        node = {
+            "guid": str(e.guid),
+            "name": e.name,
+            "type_name": e.type_name,
+            "display_name": type_def.display_name if type_def else e.type_name,
+            "category": type_def.category if type_def else "custom",
+            "health_score": e.health_score,
+            "health_level": e.health_level,
+            "risk_score": e.risk_score,
+            "attributes": e.attributes or {},
+            "metrics": definition.get("metrics", []),
+            "children": [],
+            "calls_to": [],  # 横向调用关系（只展示，不展开）
+        }
+
+        # 查询纵向关系（runs_on, depends_on, includes）
+        vertical_rels = await session.execute(
+            select(Relationship).where(
+                and_(
+                    Relationship.is_active == True,
+                    Relationship.end1_guid == guid,
+                    Relationship.dimension == "vertical",
+                    Relationship.type_name.in_(["runs_on", "depends_on", "includes", "hosts"]),
+                )
+            )
+        )
+        for rel in vertical_rels.scalars().all():
+            child = await _expand(rel.end2_guid, depth + 1)
+            if child:
+                node["children"].append({
+                    "relation_type": rel.type_name,
+                    "relation_guid": str(rel.guid),
+                    "confidence": rel.confidence,
+                    "node": child,
+                })
+
+        # 查询横向关系（calls）— 只展示，不展开
+        horizontal_rels = await session.execute(
+            select(Relationship, Entity).join(
+                Entity, Relationship.end2_guid == Entity.guid
+            ).where(
+                and_(
+                    Relationship.is_active == True,
+                    Relationship.end1_guid == guid,
+                    Relationship.dimension == "horizontal",
+                    Relationship.type_name.in_(["calls", "depends_on"]),
+                )
+            )
+        )
+        for rel, target_entity in horizontal_rels.all():
+            node["calls_to"].append({
+                "guid": str(target_entity.guid),
+                "name": target_entity.name,
+                "type_name": target_entity.type_name,
+                "relation_type": rel.type_name,
+            })
+
+        return node
+
+    drill_tree = await _expand(eid, 0)
+
+    # 获取类型定义中的 health 模型
+    type_def = await session.get(EntityTypeDef, entity.type_name)
+    health_model = (type_def.definition or {}).get("health") if type_def else None
+
+    return {
+        "entity": {
+            "guid": str(entity.guid),
+            "name": entity.name,
+            "type_name": entity.type_name,
+            "health_score": entity.health_score,
+            "health_level": entity.health_level,
+            "risk_score": entity.risk_score,
+        },
+        "health_model": health_model,
+        "drill_tree": drill_tree,
+        "max_depth": max_depth,
+        "visited_count": len(visited),
+    }
+
+
+@router.get("/topology/call")
+async def get_call_topology(
+    window_minutes: int = Query(15, ge=1, le=60, description="时间窗口(分钟)"),
+    session: AsyncSession = Depends(get_session),
+):
+    """获取调用拓扑 — 从 CMDB relationship 表查询横向调用关系。"""
+    # 查询所有横向调用关系
+    query = select(
+        Relationship,
+        Entity.name.label("from_name"),
+        Entity.type_name.label("from_type"),
+    ).join(
+        Entity, Relationship.end1_guid == Entity.guid
+    ).where(
+        and_(
+            Relationship.is_active == True,
+            Relationship.dimension == "horizontal",
+            Relationship.type_name.in_(["calls", "depends_on"]),
+        )
+    )
+    result = await session.execute(query)
+
+    edges = []
+    nodes = {}
+
+    for rel, from_name, from_type in result.all():
+        # 获取目标实体
+        target = await session.get(Entity, rel.end2_guid)
+        if not target:
+            continue
+
+        edges.append({
+            "from_guid": str(rel.end1_guid),
+            "from_name": from_name,
+            "from_type": from_type,
+            "to_guid": str(rel.end2_guid),
+            "to_name": target.name,
+            "to_type": target.type_name,
+            "relation_type": rel.type_name,
+            "confidence": rel.confidence,
+            "source": rel.source,
+        })
+
+        # 收集节点
+        nodes[str(rel.end1_guid)] = {"name": from_name, "type": from_type}
+        nodes[str(rel.end2_guid)] = {"name": target.name, "type": target.type_name}
+
+    return {
+        "nodes": [
+            {"guid": guid, **info}
+            for guid, info in nodes.items()
+        ],
+        "edges": edges,
+        "window_minutes": window_minutes,
+    }
+
+
+@router.get("/topology/infra")
+async def get_infra_topology(
+    session: AsyncSession = Depends(get_session),
+):
+    """获取基础设施拓扑 — 查询 runs_on / hosts / connected_to 关系。"""
+    query = select(
+        Relationship,
+        Entity.name.label("from_name"),
+        Entity.type_name.label("from_type"),
+    ).join(
+        Entity, Relationship.end1_guid == Entity.guid
+    ).where(
+        and_(
+            Relationship.is_active == True,
+            Relationship.type_name.in_(["runs_on", "hosts", "connected_to"]),
+        )
+    )
+    result = await session.execute(query)
+
+    edges = []
+    nodes = {}
+
+    for rel, from_name, from_type in result.all():
+        target = await session.get(Entity, rel.end2_guid)
+        if not target:
+            continue
+
+        edges.append({
+            "from_guid": str(rel.end1_guid),
+            "from_name": from_name,
+            "from_type": from_type,
+            "to_guid": str(rel.end2_guid),
+            "to_name": target.name,
+            "to_type": target.type_name,
+            "relation_type": rel.type_name,
+        })
+
+        nodes[str(rel.end1_guid)] = {
+            "name": from_name,
+            "type": from_type,
+            "health_score": None,
+        }
+        nodes[str(rel.end2_guid)] = {
+            "name": target.name,
+            "type": target.type_name,
+            "health_score": target.health_score,
+        }
+
+    # 补充节点的健康度信息
+    for guid in nodes:
+        e = await session.get(Entity, uuid.UUID(guid))
+        if e:
+            nodes[guid]["health_score"] = e.health_score
+            nodes[guid]["health_level"] = e.health_level
+
+    return {
+        "nodes": [
+            {"guid": guid, **info}
+            for guid, info in nodes.items()
+        ],
+        "edges": edges,
+    }
+
 
 # heartbeat 路由已迁移到 heartbeat.py

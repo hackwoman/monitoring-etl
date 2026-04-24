@@ -85,6 +85,7 @@ class Relationship(Base):
     source = Column(String(64), default="manual")  # manual/trace_discovered/imported/auto_discovered
     confidence = Column(Float, default=1.0)
     dimension = Column(String(16), default="vertical")  # horizontal=调用链, vertical=归属树
+    call_type = Column(String(16), default="sync")  # sync | async
     is_active = Column(Boolean, default=True)
     first_seen = Column(DateTime(timezone=True), default=datetime.utcnow)
     last_seen = Column(DateTime(timezone=True), default=datetime.utcnow)

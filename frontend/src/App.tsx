@@ -6,7 +6,7 @@ import {
   ClusterOutlined, MessageOutlined, AlertOutlined,
   ApiOutlined, DesktopOutlined, CloudServerOutlined,
   EyeOutlined, ThunderboltOutlined, MonitorOutlined,
-  TagOutlined, ToolOutlined,
+  TagOutlined, ToolOutlined, SearchOutlined, ApartmentOutlined,
 } from '@ant-design/icons';
 import LogsPage from './pages/Logs';
 import CmdbPage from './pages/Cmdb';
@@ -21,6 +21,8 @@ import PageAnalysis from './pages/PageAnalysis';
 import HttpRequestAnalysis from './pages/HttpRequestAnalysis';
 import BizMappingPage from './pages/BizMapping';
 import EtlPage from './pages/Etl';
+import BusinessDiscovery from './pages/BusinessDiscovery';
+import LogicalTopologyPage from './pages/LogicalTopology';
 import { TimeRangeProvider } from './components/TimeRangeContext';
 
 const { Header, Content, Sider } = Layout;
@@ -52,6 +54,8 @@ const App: React.FC = () => (
                 ],
               },
               { key: 'topology', icon: <ClusterOutlined />, label: <Link to="/topology">拓扑</Link> },
+              { key: 'logical-topology', icon: <ApartmentOutlined />, label: <Link to="/logical-topology">业务拓扑</Link> },
+              { key: 'biz-discovery', icon: <SearchOutlined />, label: <Link to="/business-discovery">业务发现</Link> },
               { key: 'alerts', icon: <AlertOutlined />, label: <Link to="/alerts">告警</Link> },
               { key: 'cmdb', icon: <DatabaseOutlined />, label: <Link to="/cmdb">CMDB</Link> },
               { key: 'biz-mapping', icon: <TagOutlined />, label: <Link to="/biz-mapping">业务映射</Link> },
@@ -70,6 +74,8 @@ const App: React.FC = () => (
             <Route path="/host-analysis" element={<HostAnalysis />} />
             <Route path="/network-analysis" element={<NetworkAnalysis />} />
             <Route path="/topology" element={<TopologyPage />} />
+            <Route path="/logical-topology" element={<LogicalTopologyPage />} />
+            <Route path="/business-discovery" element={<BusinessDiscovery />} />
             <Route path="/alerts" element={<AlertsPage />} />
             <Route path="/cmdb" element={<CmdbPage />} />
             <Route path="/biz-mapping" element={<BizMappingPage />} />

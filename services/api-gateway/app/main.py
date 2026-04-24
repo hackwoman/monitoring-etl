@@ -65,6 +65,30 @@ async def proxy_records(request: Request):
     return await _proxy(request, f"{CMDB_API_URL}/api/v1/records")
 
 
+@app.api_route("/api/v1/stacktraces", methods=["GET"])
+async def proxy_stacktraces(request: Request):
+    """Proxy to CMDB API stacktraces endpoint."""
+    return await _proxy(request, f"{CMDB_API_URL}/api/v1/stacktraces")
+
+
+@app.api_route("/api/v1/business-discovery/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def proxy_business_discovery(request: Request, path: str):
+    """Proxy to CMDB API business discovery endpoint."""
+    return await _proxy(request, f"{CMDB_API_URL}/api/v1/business-discovery/{path}")
+
+
+@app.api_route("/api/v1/slo/{path:path}", methods=["GET"])
+async def proxy_slo(request: Request, path: str):
+    """Proxy to CMDB API SLO endpoint."""
+    return await _proxy(request, f"{CMDB_API_URL}/api/v1/slo/{path}")
+
+
+@app.api_route("/api/v1/slo", methods=["GET"])
+async def proxy_slo_root(request: Request):
+    """Proxy to CMDB API SLO root."""
+    return await _proxy(request, f"{CMDB_API_URL}/api/v1/slo")
+
+
 async def _proxy(request: Request, target_url: str):
     """Generic proxy handler."""
     async with httpx.AsyncClient(timeout=30) as client:

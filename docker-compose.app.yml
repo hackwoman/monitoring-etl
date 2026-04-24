@@ -1,5 +1,5 @@
 # docker-compose.app.yml — 应用层（实例 B: 8.146.232.9）
-# 数据层在实例 A (47.93.61.196) 运行 postgres + clickhouse + redis
+# 数据层在实例 A (localhost) 运行 postgres + clickhouse + redis
 #
 # 用法: docker compose -f docker-compose.app.yml up -d --build
 
@@ -10,7 +10,7 @@ services:
       context: ./services/cmdb-api
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@47.93.61.196:5432/cmdb
+      DATABASE_URL: postgresql+asyncpg://postgres:M9kX#pL2vQ!zR7w@47.93.61.196:5432/cmdb
     ports:
       - "8001:8000"
     restart: unless-stopped
@@ -60,7 +60,7 @@ services:
       context: ./services/health-engine
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@47.93.61.196:5432/cmdb
+      DATABASE_URL: postgresql://postgres:M9kX#pL2vQ!zR7w@47.93.61.196:5432/cmdb
       CLICKHOUSE_URL: http://47.93.61.196:8123
       HEALTH_ENGINE_INTERVAL: "60"
     depends_on:
@@ -73,7 +73,7 @@ services:
       context: ./services/alert-engine
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@47.93.61.196:5432/cmdb
+      DATABASE_URL: postgresql://postgres:M9kX#pL2vQ!zR7w@47.93.61.196:5432/cmdb
       CLICKHOUSE_URL: http://47.93.61.196:8123
       ALERT_ENGINE_INTERVAL: "60"
       WEBHOOK_PORT: "8003"

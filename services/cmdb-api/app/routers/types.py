@@ -1,12 +1,27 @@
 """CMDB Type management routes - Phase 2 增强版。"""
 import json
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_session
 from app.models import EntityTypeDef, RelationshipTypeDef, AttributeTemplate
+from app.metric_definitions import (
+    ENTITY_METRIC_DEFINITIONS,
+    METRIC_DIMENSIONS,
+    get_metrics_for_type,
+    get_all_metrics_flat,
+    validate_metric_value,
+)
+from app.attribute_definitions import (
+    ATTRIBUTE_TYPES,
+    ATTRIBUTE_TEMPLATES,
+    AttributeMetadata,
+    get_attribute_template,
+    get_attribute_schema,
+    validate_entity_attributes,
+)
 
 router = APIRouter()
 
@@ -292,4 +307,171 @@ async def get_attribute_template(
         "attributes": tmpl.attributes or [],
         "description": tmpl.description,
         "is_builtin": tmpl.is_builtin,
+    }
+
+
+# ---- Phase 4.1: 指标体系 API ----
+
+@router.get("/metric-dimensions")
+async def list_metric_dimensions():
+    """列出所有指标维度分类。"""
+    return {
+        "total": len(METRIC_DIMENSIONS),
+        "dimensions": [
+            {"key": key, "label": label}
+            for key, label in METRIC_DIMENSIONS.items()
+        ],
+    }
+
+
+@router.get("/metric-definitions")
+async def list_metric_definitions(
+    type_name: Optional[str] = Query(None, description="按实体类型过滤"),
+):
+    """列出所有实体类型的指标定义。"""
+    if type_name:
+        metrics = get_metrics_for_type(type_name)
+        if not metrics:
+            raise HTTPException(404, f"No metric definitions for type '{type_name}'")
+        return {
+            "type_name": type_name,
+            "dimensions": metrics,
+            "total": sum(len(m) for m in metrics.values()),
+        }
+    
+    # 返回所有类型的指标概览
+    result = {}
+    for tname, dims in ENTITY_METRIC_DEFINITIONS.items():
+        result[tname] = {
+            "dimensions": list(dims.keys()),
+            "total_metrics": sum(len(m) for m in dims.values()),
+        }
+    return {
+        "types": result,
+        "total_types": len(result),
+    }
+
+
+@router.get("/metric-definitions/{type_name}")
+async def get_type_metric_definitions(
+    type_name: str,
+    flat: bool = Query(False, description="是否返回扁平化列表"),
+):
+    """获取指定实体类型的完整指标定义（带维度和阈值）。"""
+    if flat:
+        metrics = get_all_metrics_flat(type_name)
+        if not metrics:
+            raise HTTPException(404, f"No metric definitions for type '{type_name}'")
+        return {
+            "type_name": type_name,
+            "total": len(metrics),
+            "metrics": metrics,
+        }
+    
+    metrics = get_metrics_for_type(type_name)
+    if not metrics:
+        raise HTTPException(404, f"No metric definitions for type '{type_name}'")
+    
+    return {
+        "type_name": type_name,
+        "dimensions": {
+            dim: {
+                "label": METRIC_DIMENSIONS.get(dim, dim),
+                "metrics": mets,
+            }
+            for dim, mets in metrics.items()
+        },
+        "total": sum(len(m) for m in metrics.values()),
+    }
+
+
+@router.post("/metric-definitions/validate")
+async def validate_metric(
+    metric_name: str = Query(..., description="指标名称"),
+    type_name: str = Query(..., description="实体类型"),
+    value: float = Query(..., description="指标值"),
+):
+    """验证指标值是否超阈值。"""
+    status = validate_metric_value(metric_name, type_name, value)
+    return {
+        "metric_name": metric_name,
+        "type_name": type_name,
+        "value": value,
+        "status": status,
+    }
+
+
+# ---- Phase 4.2: 属性元数据 API ----
+
+@router.get("/attribute-schemas/{type_name}")
+async def get_attribute_schema_api(
+    type_name: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """获取实体类型的属性 Schema（从数据库 definition.attributes 读取）。
+
+    返回格式化的 Schema，供前端表单生成使用。
+    """
+    etype = await session.get(EntityTypeDef, type_name)
+    if not etype:
+        raise HTTPException(404, f"Type '{type_name}' not found")
+
+    definition = etype.definition or {}
+    attributes = definition.get("attributes", [])
+
+    # 按分组组织
+    groups = {}
+    for attr in attributes:
+        group = attr.get("group") or "其他"
+        if group not in groups:
+            groups[group] = []
+        groups[group].append(attr)
+
+    # 统计 health_factor 属性
+    health_factors = [a for a in attributes if a.get("health_factor")]
+    scale_keys = [a for a in attributes if a.get("threshold_scale_key")]
+
+    return {
+        "type_name": type_name,
+        "attributes": attributes,
+        "groups": [
+            {"name": name, "attributes": attrs}
+            for name, attrs in groups.items()
+        ],
+        "total": len(attributes),
+        "health_factors": [a["key"] for a in health_factors],
+        "threshold_scale_keys": [a["key"] for a in scale_keys],
+    }
+
+
+class AttributeValidateRequest(BaseModel):
+    type_name: str
+    attributes: dict
+
+
+@router.post("/attribute-schemas/validate")
+async def validate_attributes_api(
+    body: AttributeValidateRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """校验属性值是否符合元数据定义。"""
+    etype = await session.get(EntityTypeDef, body.type_name)
+    if not etype:
+        raise HTTPException(404, f"Type '{body.type_name}' not found")
+
+    definition = etype.definition or {}
+    attr_defs = definition.get("attributes", [])
+
+    errors = []
+    for attr_def in attr_defs:
+        attr_meta = AttributeMetadata(**attr_def)
+        value = body.attributes.get(attr_meta.key)
+        valid, error = validate_attribute_value(attr_meta, value)
+        if not valid:
+            errors.append({"key": attr_meta.key, "error": error})
+
+    return {
+        "type_name": body.type_name,
+        "valid": len(errors) == 0,
+        "errors": errors,
     }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, Tag, Drawer, Descriptions, Spin, Empty, Space, Row, Col, Divider, Progress, Tabs, Table, Timeline, Badge } from 'antd';
+import { Collapse } from 'antd';
 import {
   ApartmentOutlined, ApiOutlined, DatabaseOutlined,
   DesktopOutlined, CloudServerOutlined, GlobalOutlined,
@@ -514,6 +515,135 @@ const TopologyPage: React.FC = () => {
   // 三个视图
   // ============================================================
 
+
+  // ============================================================
+  // 统一拓扑布局 - 只显示横向调用（X轴），纵向关系在抽屉中显示
+  // ============================================================
+  // 主拓扑只显示服务/组件层，用于展示横向调用关系
+  // 容器(K8sPod)和主机(Host/NetworkDevice)不显示在主拓扑，只在抽屉纵向拓扑中
+  const SERVICE_LAYER = 1; // 服务层
+  const COMPONENT_LAYER = 2; // 组件层(MySQL/Redis等)
+  const APP_LAYER = 3; // 应用层
+
+  const getServiceLayer = (typeName: string): number => {
+    // 服务和K8sPod放在同一层（都是运行时抽象）
+    if (['Service', 'K8sPod', 'Endpoint'].includes(typeName)) return SERVICE_LAYER;
+    // 存储/中间件/组件
+    if (['MySQL', 'Redis', 'Database', 'Middleware', 'Elasticsearch', 'MongoDB', 'Kafka', 'RabbitMQ'].includes(typeName)) return COMPONENT_LAYER;
+    // 应用/业务
+    if (['Application', 'Business'].includes(typeName)) return APP_LAYER;
+    return 0; // 不显示：Host, NetworkDevice, Kubernetes
+  };
+
+  const unifiedLayout = useMemo((): { pos: Record<string, { x: number; y: number }>; height: number; horizontalEdges: { from: string; to: string; type: string }[]; layerY: Record<number, number> } => {
+    if (entities.length === 0) return { pos: {}, height: 400, horizontalEdges: [], layerY: {} };
+
+    // 只收集服务/组件节点（不显示容器K8sPod和主机Host/NetworkDevice）
+
+
+    // 只收集横向调用边（calls类型）
+    const horizontalEdges: { from: string; to: string; type: string }[] = [];
+
+    // Trace调用关系
+    traceRels.forEach(tr => {
+      const callerGuid = entityByName[tr.caller]?.guid;
+      const calleeGuid = entityByName[tr.callee]?.guid;
+      // 只添加两端都是服务/组件的边
+      if (callerGuid && calleeGuid) {
+        const callerEntity = entityByName[tr.caller];
+        const calleeEntity = entityByName[tr.callee];
+        if (callerEntity && calleeEntity && getServiceLayer(callerEntity.type_name) > 0 && getServiceLayer(calleeEntity.type_name) > 0) {
+          horizontalEdges.push({ from: callerGuid, to: calleeGuid, type: 'calls' });
+        }
+      }
+    });
+
+    // CMDB calls类型关系
+    relations.forEach(r => {
+      if (r.type_name === 'calls' || r.type_name === 'depends_on') {
+        const fromEntity = entityMap[r.from_guid];
+        const toEntity = entityMap[r.to_guid];
+        if (fromEntity && toEntity && getServiceLayer(fromEntity.type_name) > 0 && getServiceLayer(toEntity.type_name) > 0) {
+          horizontalEdges.push({ from: r.from_guid, to: r.to_guid, type: r.type_name });
+        }
+      }
+    });
+
+    // 按层分组
+    const nodesByLayer: Record<number, Entity[]> = {};
+    entities.filter((e: Entity) => getServiceLayer(e.type_name) > 0).forEach(e => {
+      const layer = getServiceLayer(e.type_name);
+      (nodesByLayer[layer] ||= []).push(e);
+    });
+
+    const W = 1400;
+    const H_PER_LAYER = 130;
+    const NODE_SPREAD = 100;
+    const pos: Record<string, { x: number; y: number }> = {};
+    const layerY: Record<number, number> = {};
+
+    Object.entries(nodesByLayer).forEach(([layerStr, nodes]) => {
+      const layer = parseInt(layerStr);
+      layerY[layer] = 50 + (layer - 1) * H_PER_LAYER;
+      const y = layerY[layer];
+      const totalW = nodes.length * NODE_SPREAD;
+      const startX = Math.max(60, (W - totalW) / 2 + NODE_SPREAD / 2);
+      nodes.forEach((n, i) => {
+        pos[n.guid] = { x: startX + i * NODE_SPREAD, y };
+      });
+    });
+
+    const maxLayer = Math.max(2, ...Object.keys(nodesByLayer).map(Number));
+    const height = 50 + maxLayer * H_PER_LAYER + 80;
+
+    return { pos, height, horizontalEdges, layerY };
+  }, [entities, relations, traceRels, entityByName]);
+
+
+  const renderUnified = () => {
+    if (entities.length === 0) return <Empty description="暂无实体数据" />;
+    const { pos, height, horizontalEdges, layerY } = unifiedLayout;
+    const layerLabels: Record<number, string> = { 1: '基础设施', 2: '存储/中间件', 3: '服务', 4: '应用/业务' };
+
+    return (
+      <Card size="small" style={{ overflow: 'auto', background: '#fafbfc' }}>
+        <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 6, fontSize: 12, color: '#52c41a' }}>
+          <span style={{ fontWeight: 600 }}>📍 横向调用拓扑</span>
+          <span style={{ marginLeft: 12, color: '#8c8c8c' }}>点击服务实例 → 查看纵向拓扑</span>
+        </div>
+        <svg width="100%" height={height} viewBox={`0 0 1400 ${height}`} style={{ minWidth: 900 }}>
+          <defs>
+            <marker id="arrow-h" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#52c41a" />
+            </marker>
+          </defs>
+          {horizontalEdges.map((e, i) => {
+            const f = pos[e.from], t = pos[e.to];
+            if (!f || !t) return null;
+            const midX = (f.x + t.x) / 2;
+            const path = `M ${f.x + NODE_R} ${f.y} Q ${midX} ${f.y} ${midX} ${(f.y + t.y) / 2} T ${t.x - NODE_R} ${t.y}`;
+            return <path key={`h-${i}`} d={path} fill="none" stroke="#52c41a" strokeWidth={1.5} strokeOpacity={0.7} markerEnd="url(#arrow-h)" />;
+          })}
+          {entities.filter((e: Entity) => getServiceLayer(e.type_name) > 0).filter(e => pos[e.guid]).map(e => {
+            const p = pos[e.guid];
+            return <g key={e.guid} opacity={hlGuid && e.guid !== hlGuid ? 0.2 : 1}>{renderNode(e, p.x, p.y)}</g>;
+          })}
+          {Object.entries(layerY as Record<number, number>).map(([layer, y]) => (
+            <text key={`lbl-${layer}`} x={8} y={y - 14} fontSize={10} fill="#8c8c8c" fontWeight={600}>
+              {layerLabels[parseInt(layer)] || ''}
+            </text>
+          ))}
+        </svg>
+        <div style={{ display: 'flex', gap: 24, marginTop: 8, fontSize: 11, color: '#8c8c8c' }}>
+          <span>📊 {entities.filter((e: Entity) => getServiceLayer(e.type_name) > 0).length} 服务/组件</span>
+          <span>🔗 {horizontalEdges.length} 调用关系</span>
+          <span style={{ color: '#52c41a' }}>━ 横向调用 (X轴)</span>
+          <span style={{ color: '#1890ff' }}>点击节点 → 抽屉显示纵向拓扑</span>
+        </div>
+      </Card>
+    );
+  };
+
   // ---- 全局拓扑 ----
   const renderGlobal = () => {
     const bizGroups: Record<string, Entity[]> = {};
@@ -678,27 +808,27 @@ const TopologyPage: React.FC = () => {
         资源拓扑
       </h2>
 
-      <Tabs activeKey={activeTab} onChange={setActiveTab}
-        items={[
-          { key: 'global', label: <span><GlobalOutlined /> 全局拓扑</span> },
-          { key: 'call', label: <span><ApiOutlined /> 调用拓扑</span> },
-          { key: 'infra', label: <span><DesktopOutlined /> 基础设施拓扑</span> },
-        ]}
-        style={{ marginBottom: 16 }}
-      />
-
-      <Space style={{ marginBottom: 12 }}>
-        <span style={{ color: '#8c8c8c' }}>{entities.length} 实体 · {relations.length} 关系
-          {traceRels.length > 0 && ` · ${traceRels.length} 调用链`}
-        </span>
-      </Space>
-
       {loading ? <Spin size="large" style={{ display: 'block', margin: '100px auto' }} /> :
         entities.length === 0 ? <Empty /> :
-        activeTab === 'global' ? renderGlobal() :
-        activeTab === 'call' ? renderCall() :
-        renderInfra()
+        renderUnified()
       }
+
+      {/* 旧视图（折叠） */}
+      <Collapse defaultActiveKey={[]} style={{ marginTop: 16 }}>
+        <Collapse.Panel key="old" header={<span style={{ color: '#8c8c8c', fontSize: 11 }}>旧视图（保留对比）</span>}>
+          <Tabs activeKey={activeTab} onChange={setActiveTab}
+            items={[
+              { key: 'global', label: <span><GlobalOutlined /> 全局拓扑</span> },
+              { key: 'call', label: <span><ApiOutlined /> 调用拓扑</span> },
+              { key: 'infra', label: <span><DesktopOutlined /> 基础设施拓扑</span> },
+            ]}
+          />
+          <Space style={{ marginBottom: 12 }}>
+            <span style={{ color: '#8c8c8c' }}>{entities.length} 实体 · {relations.length} 关系{traceRels.length > 0 && ` · ${traceRels.length} 调用链`}</span>
+          </Space>
+          {activeTab === 'global' ? renderGlobal() : activeTab === 'call' ? renderCall() : renderInfra()}
+        </Collapse.Panel>
+      </Collapse>
 
       {/* 图例（紧凑一行） */}
       <div style={{ marginTop: 12, padding: '6px 12px', background: '#fafbfc', borderRadius: 6, display: 'flex', gap: 24, fontSize: 11, color: '#8c8c8c', flexWrap: 'wrap' }}>
