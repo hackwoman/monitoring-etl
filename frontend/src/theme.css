@@ -1,0 +1,479 @@
+/* ══════════════════════════════════════════════════════════════
+   监控 ETL 平台 — 专业设计系统
+   基于 UI/UX Pro Max 技能生成
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── CSS 变量 ── */
+:root {
+  /* 背景色 */
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8fafc;
+  --bg-input: #ffffff;
+  
+  /* 文字色 */
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-dark: #0f172a;
+  --text-dark-secondary: #475569;
+  
+  /* 强调色 */
+  --color-primary: #3b82f6;
+  --color-primary-hover: #2563eb;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  
+  /* 边框 */
+  --border-light: #e2e8f0;
+  --border-medium: #cbd5e1;
+  --border-dark: #334155;
+  
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  
+  /* 圆角 */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  
+  /* 间距 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  
+  /* 字体 */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace;
+}
+
+/* ── 全局重置 ── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ── 滚动条 ── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-dark);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* ── 卡片组件 ── */
+.card {
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-light);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.card:hover {
+  box-shadow: var(--shadow-lg);
+}
+
+.card-header {
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--border-light);
+  font-weight: 600;
+  color: var(--text-dark);
+}
+
+.card-body {
+  padding: var(--space-6);
+}
+
+/* ── 按钮组件 ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+  outline: none;
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--color-primary-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.btn-secondary:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.btn-danger {
+  background: var(--color-danger);
+  color: white;
+}
+
+.btn-danger:hover {
+  background: #dc2626;
+}
+
+/* ── 输入框组件 ── */
+.input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font-size: 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  color: var(--text-dark);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+/* ── 表格组件 ── */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-card-hover);
+  border-bottom: 1px solid var(--border-light);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.table td {
+  padding: var(--space-3) var(--space-4);
+  font-size: 14px;
+  color: var(--text-dark);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.table tr:hover td {
+  background: var(--bg-card-hover);
+}
+
+/* ── 标签组件 ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+}
+
+.badge-success {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--color-success);
+}
+
+.badge-warning {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--color-warning);
+}
+
+.badge-danger {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--color-danger);
+}
+
+.badge-info {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--color-primary);
+}
+
+/* ── 导航组件 ── */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.nav-item.active {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--color-primary);
+}
+
+/* ── 工具类 ── */
+.text-center { text-align: center; }
+.text-right { text-align: right; }
+.font-medium { font-weight: 500; }
+.font-semibold { font-weight: 600; }
+.font-bold { font-weight: 700; }
+.text-sm { font-size: 12px; }
+.text-base { font-size: 14px; }
+.text-lg { font-size: 16px; }
+.text-xl { font-size: 20px; }
+.text-2xl { font-size: 24px; }
+.tabular-nums { font-variant-numeric: tabular-nums; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+
+/* ══════════════════════════════════════════════════════════════
+   Ant Design CSS 变量覆盖（暗色主题）
+   ══════════════════════════════════════════════════════════════ */
+
+/* 覆盖 Ant Design 的文字颜色 */
+:root {
+  --ant-color-text: #f1f5f9;
+  --ant-color-text-secondary: #94a3b8;
+  --ant-color-text-tertiary: #64748b;
+  --ant-color-text-quaternary: #475569;
+  --ant-color-bg-container: #1e293b;
+  --ant-color-bg-elevated: #1e293b;
+  --ant-color-bg-layout: #0f172a;
+  --ant-color-border: #334155;
+  --ant-color-border-secondary: #475569;
+  --ant-color-primary: #3b82f6;
+  --ant-color-success: #22c55e;
+  --ant-color-warning: #f59e0b;
+  --ant-color-error: #ef4444;
+}
+
+/* 强制覆盖 Ant Design 组件的文字颜色 */
+.ant-layout {
+  background: #0f172a !important;
+}
+
+.ant-layout-sider {
+  background: #0d1b2a !important;
+}
+
+.ant-layout-header {
+  background: linear-gradient(90deg, #0d1b2a 0%, #1a2d4a 100%) !important;
+}
+
+.ant-menu-dark {
+  background: #0d1b2a !important;
+}
+
+.ant-menu-dark .ant-menu-item {
+  color: #94a3b8 !important;
+}
+
+.ant-menu-dark .ant-menu-item:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.ant-menu-dark .ant-menu-item-selected {
+  color: #3b82f6 !important;
+  background: rgba(59, 130, 246, 0.1) !important;
+}
+
+/* 覆盖所有 Ant Design 组件的文字颜色 */
+.ant-typography,
+.ant-card,
+.ant-table,
+.ant-form,
+.ant-input,
+.ant-select,
+.ant-button,
+.ant-tag,
+.ant-badge,
+.ant-statistic,
+.ant-list,
+.ant-descriptions {
+  color: #333 !important;
+}
+
+/* 卡片样式覆盖 */
+.ant-card {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
+}
+
+.ant-card .ant-card-head {
+  color: #0f172a !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+.ant-card .ant-card-body {
+  color: #333333 !important;
+}
+
+/* 表格样式覆盖 */
+.ant-table {
+  background: #ffffff !important;
+}
+
+.ant-table-thead > tr > th {
+  background: #f8fafc !important;
+  color: #64748b !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+.ant-table-tbody > tr > td {
+  color: #333333 !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+.ant-table-tbody > tr:hover > td {
+  background: #f1f5f9 !important;
+}
+
+/* 按钮样式覆盖 */
+.ant-btn-primary {
+  background: #3b82f6 !important;
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+}
+
+.ant-btn-primary:hover {
+  background: #2563eb !important;
+  border-color: #2563eb !important;
+}
+
+/* 输入框样式覆盖 */
+.ant-input,
+.ant-select-selector {
+  background: #ffffff !important;
+  border-color: #d1d5db !important;
+  color: #333333 !important;
+}
+
+.ant-input:focus,
+.ant-input-focused,
+.ant-select-focused .ant-select-selector {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+}
+
+/* 标签样式覆盖 */
+.ant-tag {
+  border-radius: 4px !important;
+}
+
+/* 统计数字样式 */
+.ant-statistic-content-value {
+  color: #0f172a !important;
+  font-size: 32px !important;
+  font-weight: 700 !important;
+}
+
+/* 列表样式 */
+.ant-list-item {
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+.ant-list-item-meta-title {
+  color: #0f172a !important;
+}
+
+.ant-list-item-meta-description {
+  color: #64748b !important;
+}
+
+
+/* 侧边栏深色背景下的菜单文字颜色 */
+.ant-layout-sider .ant-menu-item,
+.ant-layout-sider .ant-menu-submenu-title {
+  color: #e2e8f0 !important;
+}
+
+.ant-layout-sider .ant-menu-item:hover,
+.ant-layout-sider .ant-menu-submenu-title:hover {
+  color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.ant-layout-sider .ant-menu-item-selected {
+  color: #3b82f6 !important;
+  background-color: rgba(59, 130, 246, 0.15) !important;
+}
+
+/* 子菜单项 */
+.ant-layout-sider .ant-menu-sub .ant-menu-item {
+  color: #cbd5e1 !important;
+}
+
+.ant-layout-sider .ant-menu-sub .ant-menu-item:hover {
+  color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* 子菜单展开标题 */
+.ant-layout-sider .ant-menu-submenu-open > .ant-menu-submenu-title {
+  color: #94a3b8 !important;
+}
+
+
+

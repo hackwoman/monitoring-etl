@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import entities, types, health, overview, discover, heartbeat, chat, alerts, records, stats, business_mapping, etl, business_discovery, slo, topology
+from app.routers import entities, types, health, overview, discover, heartbeat, chat, alerts, records, stats, business_mapping, etl, business_discovery, slo, topology, compensation, smart_etl, data_factory
 from app.database import init_db
 
 app = FastAPI(
@@ -31,6 +31,9 @@ app.include_router(stats.router, prefix="/api/v1", tags=["stats"])
 app.include_router(business_mapping.router, tags=["business-mapping"])
 app.include_router(etl.router, tags=["etl"])
 app.include_router(business_discovery.router, prefix="/api/v1", tags=["business-discovery"])
+app.include_router(data_factory.router, prefix="/api/v1/cmdb", tags=["data_factory"])
+app.include_router(smart_etl.router, prefix="/api/v1/cmdb", tags=["smart_etl"])
+app.include_router(compensation.router, prefix="/api/v1/cmdb", tags=["compensation"])
 app.include_router(slo.router, prefix="/api/v1", tags=["slo"])
 
 
