@@ -292,7 +292,7 @@ const TopologyPage: React.FC = () => {
   const systems = useMemo(() => {
     const s: Record<string, Entity[]> = {};
     entities.forEach(e => {
-      const sys = e.biz_system || e.system_name || '__no_system__';
+      const sys = e.biz_service || '__no_system__';
       (s[sys] ||= []).push(e);
     });
     return s;
@@ -789,9 +789,9 @@ const TopologyPage: React.FC = () => {
                 </Space>
               </Descriptions.Item>
               {selected.biz_service && <Descriptions.Item label="业务服务">{selected.biz_service}</Descriptions.Item>}
-              {(selected.biz_system || selected.system_name) && (
+              {(selected.biz_service) && (
                 <Descriptions.Item label="系统">
-                  <Tag>🏢 {selected.biz_system || selected.system_name}</Tag>
+                  <Tag>🏢 {selected.biz_service}</Tag>
                 </Descriptions.Item>
               )}
               <Descriptions.Item label="风险度">
