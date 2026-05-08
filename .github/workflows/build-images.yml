@@ -12,15 +12,15 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${ github.actor }
-          password: ${ secrets.GITHUB_TOKEN }
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to Aliyun ACR
         uses: docker/login-action@v3
         with:
           registry: crpi-fh2g4nclc643g3kg.cn-wulanchabu.personal.cr.aliyuncs.com
           username: hackwoman1964
-          password: ${ secrets.ALIYUN_REGISTRY_PASSWORD }
+          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
 
       - name: Pull from Docker Hub
         run: |
