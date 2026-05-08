@@ -1,26 +1,26 @@
 name: Build and Push Base Images
-    on:
-      workflow_dispatch
+on:
+  workflow_dispatch
 
-    jobs:
-      build:
-        runs-on: ubuntu-latest
-        permissions:
-          packages: write
-        steps:
-          - uses: docker/login-action@v3
-            with:
-              registry: ghcr.io
-              username: ${{ github.actor }}
-              password: ${{ secrets.GITHUB_TOKEN }}
-          - name: Pull and push images
-            run: |
-              docker pull postgres:16-alpine
-              docker pull redis:7-alpine
-              docker pull clickhouse/clickhouse-server:24.8
-              docker tag postgres:16-alpine ghcr.io/hackwoman/monitoring-etl/postgres:16-alpine
-              docker tag redis:7-alpine ghcr.io/hackwoman/monitoring-etl/redis:7-alpine
-              docker tag clickhouse/clickhouse-server:24.8 ghcr.io/hackwoman/monitoring-etl/clickhouse:24.8
-              docker push ghcr.io/hackwoman/monitoring-etl/postgres:16-alpine
-              docker push ghcr.io/hackwoman/monitoring-etl/redis:7-alpine
-              docker push ghcr.io/hackwoman/monitoring-etl/clickhouse:24.8
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull and push images
+        run: |
+          docker pull postgres:16-alpine
+          docker pull redis:7-alpine
+          docker pull clickhouse/clickhouse-server:24.8
+          docker tag postgres:16-alpine ghcr.io/hackwoman/monitoring-etl/postgres:16-alpine
+          docker tag redis:7-alpine ghcr.io/hackwoman/monitoring-etl/redis:7-alpine
+          docker tag clickhouse/clickhouse-server:24.8 ghcr.io/hackwoman/monitoring-etl/clickhouse:24.8
+          docker push ghcr.io/hackwoman/monitoring-etl/postgres:16-alpine
+          docker push ghcr.io/hackwoman/monitoring-etl/redis:7-alpine
+          docker push ghcr.io/hackwoman/monitoring-etl/clickhouse:24.8
