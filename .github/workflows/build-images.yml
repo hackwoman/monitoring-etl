@@ -13,26 +13,30 @@ jobs:
         with:
           registry: crpi-fh2g4nclc643g3kg.cn-wulanchabu.personal.cr.aliyuncs.com
           username: hackwoman1964
-          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
+          password: ${ secrets.ALIYUN_REGISTRY_PASSWORD }
 
-      - name: Pull and push all base images
+      - name: Pull base images
         run: |
-          # Core database images (already on Aliyun, re-push to keep in sync)
           docker pull postgres:16-alpine
           docker pull redis:7-alpine
           docker pull clickhouse/clickhouse-server:24.8
-
-          # Python runtime for API services
           docker pull python:3.12-slim
-
-          # Node + Nginx for frontend build
           docker pull node:20-alpine
           docker pull nginx:alpine
-
-          # Vector for metrics collection
           docker pull timberio/vector:0.42.0-alpine
 
-          # Push all to Aliyun ACR
+      - name: Tag images for Aliyun ACR
+        run: |
+          docker tag postgres:16-alpine crpi-fh2g4nclc643g3kg.cn-wulanchabu.personal.cr.aliyuncs.com/monitoring-etl/postgres:16-alpine
+          docker tag redis:7-alpine crpi-fh2g4nclc643g3kg.cn-wulanchabu.personal.cr.aliyuncs.com/monitoring-etl/redis:7-alpine
+          docker tag clickhouse/clickhouse-server:24.8 crpi-fh2g4nclc643g3kg.cn-wulanchabu.personal.cr.aliyuncs.com/monitoring-etl/clickhouse:24.8
+          docker tag python:3.12-slim crpi-fh2g4nclc643g3kg.cn-wulanchabu.personal.cr.aliyuncs.com/monitoring-etl/python:3.12-slim
+          docker tag node:20-alpine crpi-fh2g4nclc643g3kg.cn-wulanchabu.personal.cr.aliyuncs.com/monitoring-etl/node:20-alpine
+          docker tag nginx:alpine crpi-fh2g4nclc643g3kg.cn-wulanchabu.personal.cr.aliyuncs.com/monitoring-etl/nginx:alpine
+          docker tag timberio/vector:0.42.0-alpine crpi-fh2g4nclc643g3kg.cn-wulanchabu.personal.cr.aliyuncs.com/monitoring-etl/vector:0.42.0-alpine
+
+      - name: Push all images to Aliyun ACR
+        run: |
           docker push crpi-fh2g4nclc643g3kg.cn-wulanchabu.personal.cr.aliyuncs.com/monitoring-etl/postgres:16-alpine
           docker push crpi-fh2g4nclc643g3kg.cn-wulanchabu.personal.cr.aliyuncs.com/monitoring-etl/redis:7-alpine
           docker push crpi-fh2g4nclc643g3kg.cn-wulanchabu.personal.cr.aliyuncs.com/monitoring-etl/clickhouse:24.8
