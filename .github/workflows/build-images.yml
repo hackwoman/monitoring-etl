@@ -1,5 +1,4 @@
-    ```yaml
-    name: Build and Push Base Images
+name: Build and Push Base Images
     on:
       workflow_dispatch
 
@@ -25,4 +24,3 @@
               docker push ghcr.io/hackwoman/monitoring-etl/postgres:16-alpine
               docker push ghcr.io/hackwoman/monitoring-etl/redis:7-alpine
               docker push ghcr.io/hackwoman/monitoring-etl/clickhouse:24.8
-    ```
