@@ -13,7 +13,7 @@ jobs:
         with:
           registry: crpi-fh2g4nclc643g3kg.cn-wulanchabu.personal.cr.aliyuncs.com
           username: hackwoman1964
-          password: ${ secrets.ALIYUN_REGISTRY_PASSWORD }
+          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
 
       - name: Pull base images
         run: |
