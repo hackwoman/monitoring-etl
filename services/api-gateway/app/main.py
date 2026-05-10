@@ -89,6 +89,24 @@ async def proxy_slo_root(request: Request):
     return await _proxy(request, f"{CMDB_API_URL}/api/v1/slo")
 
 
+@app.api_route("/api/v1/overview", methods=["GET"])
+async def proxy_overview(request: Request):
+    """Proxy to CMDB API overview endpoint."""
+    return await _proxy(request, f"{CMDB_API_URL}/api/v1/overview")
+
+
+@app.api_route("/api/v1/stats", methods=["GET"])
+async def proxy_stats(request: Request):
+    """Proxy to CMDB API stats endpoint."""
+    return await _proxy(request, f"{CMDB_API_URL}/api/v1/stats")
+
+
+@app.api_route("/api/v1/health", methods=["GET"])
+async def proxy_health(request: Request):
+    """Proxy to CMDB API health endpoint."""
+    return await _proxy(request, f"{CMDB_API_URL}/api/v1/health")
+
+
 async def _proxy(request: Request, target_url: str):
     """Generic proxy handler."""
     async with httpx.AsyncClient(timeout=30) as client:
@@ -104,7 +122,13 @@ async def _proxy(request: Request, target_url: str):
             headers=headers,
         )
 
+        try:
+            content = response.json() if response.content else {}
+        except Exception:
+            content = {"raw": response.text[:500] if response.content else ""}
+
         return JSONResponse(
-            content=response.json() if response.content else {},
+            content=content,
             status_code=response.status_code,
         )
+

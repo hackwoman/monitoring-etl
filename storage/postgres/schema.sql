@@ -107,14 +107,11 @@ CREATE TABLE IF NOT EXISTS relationship (
     confidence      FLOAT DEFAULT 1.0,
     is_active       BOOLEAN DEFAULT true,
     dimension       VARCHAR(16) DEFAULT 'vertical',  -- 'horizontal' 调用链 / 'vertical' 归属树
-    is_active       BOOLEAN DEFAULT true,
     first_seen      TIMESTAMPTZ DEFAULT now(),
     last_seen       TIMESTAMPTZ DEFAULT now(),
-    expired_at      TIMESTAMPTZ,                      -- 关系过期时间
-    verified_by     VARCHAR(128),                      -- 人工确认者
-    verified_at     TIMESTAMPTZ,                       -- 确认时间
-    created_at      TIMESTAMPTZ DEFAULT now()
-    last_seen       TIMESTAMPTZ DEFAULT now(),
+    expired_at      TIMESTAMPTZ,
+    verified_by     VARCHAR(128),
+    verified_at     TIMESTAMPTZ,
     created_at      TIMESTAMPTZ DEFAULT now()
 );
 
@@ -213,3 +210,50 @@ CREATE TABLE IF NOT EXISTS data_quality_snapshot (
     type_scores     JSONB DEFAULT '{}',
     issues          JSONB DEFAULT '[]'
 );
+
+-- Alert tables (missing from schema, referenced by models)
+CREATE TABLE IF NOT EXISTS alert_rule (
+    rule_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    rule_name       VARCHAR(256) NOT NULL,
+    rule_type       VARCHAR(32) NOT NULL,
+    target_type     VARCHAR(128),
+    target_query    JSONB DEFAULT '{}',
+    condition       JSONB NOT NULL DEFAULT '{}',
+    severity        VARCHAR(16) DEFAULT 'warning',
+    enabled         BOOLEAN DEFAULT true,
+    cooldown_minutes INT DEFAULT 5,
+    created_at      TIMESTAMPTZ DEFAULT now(),
+    updated_at      TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS alert_instance (
+    alert_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    rule_id         UUID REFERENCES alert_rule(rule_id) ON DELETE CASCADE,
+    entity_guid     UUID REFERENCES entity(guid) ON DELETE SET NULL,
+    entity_name     VARCHAR(512),
+    entity_type     VARCHAR(128),
+    status          VARCHAR(16) DEFAULT 'firing',
+    severity        VARCHAR(16) DEFAULT 'warning',
+    alert_title     VARCHAR(512),
+    alert_message   TEXT,
+    fired_at        TIMESTAMPTZ DEFAULT now(),
+    resolved_at     TIMESTAMPTZ,
+    acknowledged_at TIMESTAMPTZ,
+    acknowledged_by VARCHAR(128),
+    metadata        JSONB DEFAULT '{}',
+    created_at      TIMESTAMPTZ DEFAULT now(),
+    updated_at      TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS notification_channel (
+    channel_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    channel_name    VARCHAR(256) NOT NULL,
+    channel_type    VARCHAR(32) NOT NULL,
+    config          JSONB NOT NULL DEFAULT '{}',
+    enabled         BOOLEAN DEFAULT true,
+    created_at      TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_instance_status ON alert_instance(status);
+CREATE INDEX IF NOT EXISTS idx_alert_instance_rule ON alert_instance(rule_id);
+CREATE INDEX IF NOT EXISTS idx_alert_instance_entity ON alert_instance(entity_guid);

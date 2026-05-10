@@ -113,7 +113,7 @@ METRIC_MAPPING = {
 async def query_clickhouse(sql: str) -> list[dict]:
     """对 ClickHouse 执行 SQL，返回 JSON 解析后的 rows。"""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0)) as client:
             resp = await client.get(
                 CLICKHOUSE_URL,
                 params={"database": "default", "query": sql, "default_format": "JSON"},
@@ -359,7 +359,11 @@ async def get_logical_topology(
 
     # ── 从 ClickHouse 批量查询节点指标 ──
     entity_names = [e.name for e in entity_map.values()]
-    ch_node_metrics = await get_node_metrics_from_ch(entity_names)
+    try:
+        ch_node_metrics = await get_node_metrics_from_ch(entity_names)
+    except Exception as e:
+        print(f"[CH] node metrics query failed: {e}")
+        ch_node_metrics = {}
 
     for e in entity_map.values():
         type_def = await _get_type_def(session, e.type_name)
@@ -386,7 +390,11 @@ async def get_logical_topology(
         for rel in rels
         if rel.end1_guid in node_guids and rel.end2_guid in node_guids
     ]
-    ch_edge_metrics = await get_edge_metrics_from_ch(edge_name_pairs, entity_map)
+    try:
+        ch_edge_metrics = await get_edge_metrics_from_ch(edge_name_pairs, entity_map)
+    except Exception as e:
+        print(f"[CH] edge metrics query failed: {e}")
+        ch_edge_metrics = {}
 
     edges = []
     for rel in rels:

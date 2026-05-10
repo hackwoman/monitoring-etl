@@ -238,29 +238,51 @@ const TopologyPage: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [entRes, traceRes] = await Promise.all([
-        axios.get(`${API}/entities`, { params: { limit: 500 } }),
-        axios.get(`${API}/discover/trace/topology`, { params: { window_minutes: 1440 } }),
-      ]);
-      const entList: Entity[] = entRes.data.items || [];
+      const topoRes = await axios.get(`${API}/topology/logical`, { timeout: 30000 });
+      const nodes = topoRes.data?.nodes || [];
+      const edges = topoRes.data?.edges || [];
+      
+      // Convert nodes to Entity format (fix field name mapping)
+      const entList: Entity[] = nodes.map((n: any) => ({
+        guid: n.guid,
+        name: n.name,
+        type_name: n.type_name || n.type,
+        health_score: n.health_score ?? 100,
+        health_level: n.health_level || 'healthy',
+        risk_score: n.risk_score ?? 0,
+        biz_service: n.biz_service || '',
+        biz_system: n.biz_service || '',
+        system_name: n.biz_service || '',
+        attributes: n.attributes || {},
+        labels: n.labels || {},
+        health_detail: n.key_metrics || null,
+      }));
       setEntities(entList);
-      setTraceRels(traceRes.data.relations || []);
-
-      const relResults = await Promise.all(
-        entList.slice(0, 80).map(e =>
-          axios.get(`${API}/entities/${e.guid}/relations`).catch(() => ({ data: { items: [] } }))
-        )
-      );
-      const allRels: Relation[] = [];
-      const seen = new Set<string>();
-      for (const res of relResults) {
-        for (const r of (res.data.items || [])) {
-          const key = [r.from_guid, r.to_guid, r.type_name].sort().join('-');
-          if (!seen.has(key)) { seen.add(key); allRels.push(r); }
-        }
-      }
+      
+      // Convert edges to Relation format
+      const allRels: Relation[] = edges.map((e: any) => ({
+        guid: '',
+        type_name: e.relation_type,
+        from_guid: e.from_guid,
+        to_guid: e.to_guid,
+        dimension: 'horizontal',
+        source: 'cmdb',
+      }));
       setRelations(allRels);
-    } catch (err) { console.error(err); }
+      
+      // Build traceRels from edges for error rate display (no real trace data)
+      const traceData: TraceRelation[] = edges
+        .filter((e: any) => e.error_rate != null || e.call_count != null)
+        .map((e: any) => ({
+          caller: e.from_guid,
+          callee: e.to_guid,
+          call_count: e.call_count ?? 0,
+          avg_latency_ms: e.avg_latency_ms ?? 0,
+          p99_latency_ms: e.avg_latency_ms ?? 0,
+          error_rate: e.error_rate ?? 0,
+        }));
+      setTraceRels(traceData);
+    } catch (err) { console.error('Topology fetch error:', err); }
     setLoading(false);
   }, []);
 

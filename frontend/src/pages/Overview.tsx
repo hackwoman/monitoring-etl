@@ -39,15 +39,13 @@ const OverviewPage: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [ovRes, entRes, alertRes] = await Promise.allSettled([
+      const [ovRes, entRes] = await Promise.allSettled([
         axios.get(`${API}/overview`),
-        axios.get(`${CMDB}/entities`, { params: { limit: 5, sort: 'created_at', order: 'desc' } }),
-        axios.get(`${API}/alerts`, { params: { limit: 5 } }),
+        axios.get(`${CMDB}/entities`, { params: { limit: 5, sort: 'updated_at', order: 'desc' } }),
       ]);
 
       if (ovRes.status === 'fulfilled') setOverview(ovRes.value?.data || {});
       if (entRes.status === 'fulfilled') setEntities(entRes.value?.data?.items || []);
-      if (alertRes.status === 'fulfilled') setAlerts(alertRes.value?.data?.items || alertRes.value?.data || []);
     } catch (err) {
       console.error('Fetch failed:', err);
     }
