@@ -31,8 +31,8 @@ const HostAnalysis: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const results = await Promise.allSettled([
-      axios.get(`${CMDB}/entities`, { params: { type_name: 'Host', limit: 100 }, timeout: 30000 }),
-      axios.get(`${CMDB}/stats`, { params: { type_name: 'Host' }, timeout: 30000 }),
+      axios.get(`${CMDB}/entities`, { params: { type_name: 'Host', limit: 100 }, timeout: 120000 }),
+      axios.get(`${CMDB}/stats`, { params: { type_name: 'Host' }, timeout: 120000 }),
     ]);
     const entRes = results[0].status === 'fulfilled' ? results[0].value : null;
     const statsRes = results[1].status === 'fulfilled' ? results[1].value : null;

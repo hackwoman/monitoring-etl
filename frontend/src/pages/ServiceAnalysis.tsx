@@ -36,9 +36,9 @@ const ServiceAnalysis: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const results = await Promise.allSettled([
-      axios.get(`${CMDB}/entities`, { params: { type_name: 'Service', limit: 100 }, timeout: 30000 }),
-      axios.get(`${CMDB}/stats`, { params: { type_name: 'Service' }, timeout: 30000 }),
-      axios.get(`${CMDB}/discover/trace/topology`, { params: { window_minutes: 60 }, timeout: 5000 }).catch(() => ({ data: { relations: [] } })),
+      axios.get(`${CMDB}/entities`, { params: { type_name: 'Service', limit: 100 }, timeout: 120000 }),
+      axios.get(`${CMDB}/stats`, { params: { type_name: 'Service' }, timeout: 120000 }),
+      axios.get(`${CMDB}/discover/trace/topology`, { params: { window_minutes: 60 }, timeout: 120000 }).catch(() => ({ data: { relations: [] } })),
     ]);
     const entRes = results[0].status === 'fulfilled' ? results[0].value : null;
     const statsRes = results[1].status === 'fulfilled' ? results[1].value : null;

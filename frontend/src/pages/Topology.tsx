@@ -238,7 +238,7 @@ const TopologyPage: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const topoRes = await axios.get(`${API}/topology/logical`, { timeout: 30000 });
+      const topoRes = await axios.get(`${API}/topology/logical`, { timeout: 120000 });
       const nodes = topoRes.data?.nodes || [];
       const edges = topoRes.data?.edges || [];
       

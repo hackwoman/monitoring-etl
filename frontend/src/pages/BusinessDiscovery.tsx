@@ -60,8 +60,8 @@ const BusinessDiscovery: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     const results = await Promise.allSettled([
-      axios.get(`${API}/business-discovery/patterns?hours=24&min_traces=10`, { timeout: 30000 }).catch(() => ({ data: { patterns: [] } })),
-      axios.get(`${API}/business-discovery/list`, { timeout: 30000 }).catch(() => ({ data: { items: [] } })),
+      axios.get(`${API}/business-discovery/patterns?hours=24&min_traces=10`, { timeout: 120000 }).catch(() => ({ data: { patterns: [] } })),
+      axios.get(`${API}/business-discovery/list`, { timeout: 120000 }).catch(() => ({ data: { items: [] } })),
     ]);
     const patternsRes = results[0].status === 'fulfilled' ? results[0].value : { data: { patterns: [] } };
     const businessesRes = results[1].status === 'fulfilled' ? results[1].value : { data: { items: [] } };

@@ -34,8 +34,8 @@ const PageAnalysis: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const results = await Promise.allSettled([
-      axios.get(`${CMDB}/entities`, { params: { type_name: 'Page', limit: 200 }, timeout: 30000 }),
-      axios.get(`${CMDB}/stats`, { params: { type_name: 'Page' }, timeout: 30000 }),
+      axios.get(`${CMDB}/entities`, { params: { type_name: 'Page', limit: 200 }, timeout: 120000 }),
+      axios.get(`${CMDB}/stats`, { params: { type_name: 'Page' }, timeout: 120000 }),
     ]);
     const entRes = results[0].status === 'fulfilled' ? results[0].value : null;
     const statsRes = results[1].status === 'fulfilled' ? results[1].value : null;
