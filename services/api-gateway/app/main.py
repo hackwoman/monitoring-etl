@@ -109,7 +109,7 @@ async def proxy_health(request: Request):
 
 async def _proxy(request: Request, target_url: str):
     """Generic proxy handler."""
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
         body = await request.body()
         headers = dict(request.headers)
         headers.pop("host", None)

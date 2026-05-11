@@ -35,25 +35,26 @@ const ServiceAnalysis: React.FC = () => {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    try {
-      const [entRes, statsRes, traceRes] = await Promise.all([
-        axios.get(`${CMDB}/entities`, { params: { type_name: 'Service', limit: 100 } }),
-        axios.get(`${CMDB}/stats`, { params: { type_name: 'Service' } }),
-        axios.get(`${CMDB}/discover/trace/topology`, { params: { window_minutes: 60 } }).catch(() => ({ data: { relations: [] } })),
-      ]);
-      setEntities(entRes.data.items || []);
-      setStats(statsRes.data);
+    const results = await Promise.allSettled([
+      axios.get(`${CMDB}/entities`, { params: { type_name: 'Service', limit: 100 }, timeout: 30000 }),
+      axios.get(`${CMDB}/stats`, { params: { type_name: 'Service' }, timeout: 30000 }),
+      axios.get(`${CMDB}/discover/trace/topology`, { params: { window_minutes: 60 }, timeout: 5000 }).catch(() => ({ data: { relations: [] } })),
+    ]);
+    const entRes = results[0].status === 'fulfilled' ? results[0].value : null;
+    const statsRes = results[1].status === 'fulfilled' ? results[1].value : null;
+    const traceRes = results[2].status === 'fulfilled' ? results[2].value : { data: { relations: [] } };
+    if (entRes) setEntities(entRes.data.items || []);
+    if (statsRes) setStats(statsRes.data);
 
-      // 构建 trace 统计映射
-      const tMap: Record<string, any> = {};
-      for (const r of (traceRes.data.relations || [])) {
-        if (!tMap[r.caller]) tMap[r.caller] = { p99: 0, error_rate: 0, calls: 0 };
-        tMap[r.caller].p99 = Math.max(tMap[r.caller].p99, r.p99_latency_ms || 0);
-        tMap[r.caller].error_rate = Math.max(tMap[r.caller].error_rate, r.error_rate || 0);
-        tMap[r.caller].calls += r.call_count || 0;
-      }
-      setTraceStats(tMap);
-    } catch (e) { console.error(e); }
+    // 构建 trace 统计映射
+    const tMap: Record<string, any> = {};
+    for (const r of (traceRes.data.relations || [])) {
+      if (!tMap[r.caller]) tMap[r.caller] = { p99: 0, error_rate: 0, calls: 0 };
+      tMap[r.caller].p99 = Math.max(tMap[r.caller].p99, r.p99_latency_ms || 0);
+      tMap[r.caller].error_rate = Math.max(tMap[r.caller].error_rate, r.error_rate || 0);
+      tMap[r.caller].calls += r.call_count || 0;
+    }
+    setTraceStats(tMap);
     setLoading(false);
   }, []);
 

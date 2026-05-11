@@ -33,14 +33,14 @@ const PageAnalysis: React.FC = () => {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    try {
-      const [entRes, statsRes] = await Promise.all([
-        axios.get(`${CMDB}/entities`, { params: { type_name: 'Page', limit: 200 } }),
-        axios.get(`${CMDB}/stats`, { params: { type_name: 'Page' } }),
-      ]);
-      setEntities(entRes.data.items || []);
-      setStats(statsRes.data);
-    } catch (e) { console.error(e); }
+    const results = await Promise.allSettled([
+      axios.get(`${CMDB}/entities`, { params: { type_name: 'Page', limit: 200 }, timeout: 30000 }),
+      axios.get(`${CMDB}/stats`, { params: { type_name: 'Page' }, timeout: 30000 }),
+    ]);
+    const entRes = results[0].status === 'fulfilled' ? results[0].value : null;
+    const statsRes = results[1].status === 'fulfilled' ? results[1].value : null;
+    if (entRes) setEntities(entRes.data.items || []);
+    if (statsRes) setStats(statsRes.data);
     setLoading(false);
   }, []);
 
